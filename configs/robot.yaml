@@ -1,0 +1,7 @@
+asset: robot
+video:
+  seed: 2028
+  prompt: A robot waves and bends its knees, full body visible, static camera and background.
+  num_frames: 121
+  fps: 24
+  sample_frames: 25

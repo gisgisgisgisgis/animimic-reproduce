@@ -1,0 +1,53 @@
+"""Install official inference repositories into an isolated environment.
+
+Run with the same Python used for animimic. The setup is explicit because each
+upstream CUDA package has its own system/compiler requirements.
+"""
+import argparse
+import subprocess
+import sys
+from pathlib import Path
+
+
+REPOS = {
+    "Wan2.2": "https://github.com/Wan-Video/Wan2.2.git",
+    "alltracker": "https://github.com/aharley/alltracker.git",
+    "sam2": "https://github.com/facebookresearch/sam2.git",
+    "vggt": "https://github.com/facebookresearch/vggt.git",
+    "pytorch3d": "https://github.com/facebookresearch/pytorch3d.git",
+    "fTetWild": "https://github.com/wildmeshing/fTetWild.git",
+}
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--clone-only", action="store_true")
+    args = parser.parse_args()
+    root = Path("third_party")
+    root.mkdir(exist_ok=True)
+    revisions = {}
+    for name, url in REPOS.items():
+        directory = root/name
+        if not directory.exists():
+            subprocess.run(["git", "clone", "--recursive", url, str(directory)], check=True)
+            if name == "pytorch3d":
+                subprocess.run(["git", "-C", str(directory), "checkout", "--detach",
+                                "3eac7c62fed39a09768cd08119c5e1bf4daef559"], check=True)
+        revisions[name] = subprocess.check_output(
+            ["git", "-C", str(directory), "rev-parse", "HEAD"], text=True).strip()
+        if args.clone_only or name == "fTetWild":
+            continue
+        if name in ("Wan2.2", "alltracker"):
+            subprocess.run([sys.executable, "-m", "pip", "install", "-r",
+                            str(directory/"requirements.txt")], check=True)
+        else:
+            subprocess.run([sys.executable, "-m", "pip", "install", "-e",
+                            str(directory), "--no-build-isolation"], check=True)
+    import json
+    Path("third_party/revisions.json").write_text(json.dumps(revisions, indent=2)+"\n")
+    print("Build fTetWild with CMake; add FloatTetwild_bin to PATH.")
+    print("Download Wan-AI/Wan2.2-TI2V-5B to weights/Wan2.2-TI2V-5B.")
+
+
+if __name__ == "__main__":
+    main()

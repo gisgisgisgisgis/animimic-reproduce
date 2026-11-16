@@ -1,0 +1,15 @@
+asset: fox
+video:
+  model: Wan-AI/Wan2.2-TI2V-5B
+  seed: 2026
+  prompt: A fox takes natural steps and turns its head, full body visible, static camera and background.
+  num_frames: 121
+  fps: 24
+  sample_frames: 25
+joints:
+  learning_rate: 0.001
+physics:
+  poisson_ratio: 0.45
+  density: 1.0
+  young_modulus: 10000
+  substeps: 4

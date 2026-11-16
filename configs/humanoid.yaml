@@ -1,0 +1,7 @@
+asset: humanoid
+video:
+  seed: 2027
+  prompt: A man raises an arm and shifts his stance, full body visible, static camera and background.
+  num_frames: 121
+  fps: 24
+  sample_frames: 25

@@ -1,0 +1,5 @@
+# Run each config individually: animimic run --config configs/fox.yaml
+configs:
+  - configs/fox.yaml
+  - configs/humanoid.yaml
+  - configs/robot.yaml
