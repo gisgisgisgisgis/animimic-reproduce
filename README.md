@@ -3,7 +3,7 @@
 Research implementation of AniMimic using existing rigged meshes:
 
 ```text
-GLB → canonical render → cached Wan I2V → SAM2 / AllTracker / VGGT
+GLB → canonical render → cached Wan / LTX I2V → SAM2 / AllTracker / VGGT
     → joint optimization → fTetWild → differentiable FEM → NPZ / GLB / MP4
 ```
 
@@ -11,6 +11,11 @@ All stages are connected by `animimic run`. Numerical tests run on CPU.
 The complete pretrained-model pipeline has **not been executed on a 4090** in
 this environment, which has no accessible NVIDIA GPU. Generated benchmark
 quality, runtime and peak GPU memory are therefore unverified.
+
+For lighter local generation, select **LTX-Video 2B** with
+`animimic run --config configs/horse-ltx.yaml`. Wan remains available unchanged.
+See [本地影片模型切換、八個資產與實際預覽](docs/local-video.md) for setup,
+standalone video generation and the five additional textured animal models.
 
 Use Python 3.11 or 3.12 in an isolated virtual environment. Install a CUDA
 PyTorch build compatible with the target machine first:
@@ -41,7 +46,9 @@ animimic run --config configs/fox.yaml --force-stage supervision
 PYTHONPATH=src python -m unittest discover -s tests -v
 ```
 
-Use `configs/humanoid.yaml` or `configs/robot.yaml` for the other two benchmarks.
+Use `configs/humanoid.yaml` or `configs/robot.yaml` for the original debug benchmarks.
+The expanded set also includes horse, puppy, shark, seagull and sea turtle,
+with individual `configs/<asset>-ltx.yaml` presets.
 Set `asset_path` to use a local rigged GLB; `asset` remains its run label.
 Set `reference_video` to reuse an external video instead of generating one.
 Set `device: cpu` for small numerical experiments with a CPU PyTorch3D build.
@@ -53,7 +60,7 @@ settings reuses reference videos. Changing prompt, seed or canonical image
 creates a new video key. Force flags intentionally overwrite a stage's cached
 artifacts; keep the original manifest/video if comparing stochastic reruns.
 
-Default assets (downloaded individually; manifests retain hashes and credits):
+Original debug assets (downloaded individually; manifests retain hashes and credits):
 
 | Asset | Source | License |
 | --- | --- | --- |
@@ -63,6 +70,10 @@ Default assets (downloaded individually; manifests retain hashes and credits):
 
 Bake3D downloads returned HTTP 403 during implementation, so the benchmark uses
 these public alternatives. Downloaded assets, weights and runs are ignored by Git.
+The five naturalistic animal additions are individually fetched from Objaverse,
+with original source/CC BY attribution and pinned hashes in
+`src/animimic/animal_assets.json`. Their previews and face/joint counts are in
+[the asset guide](docs/local-video.md). Fox is explicitly a low-poly debug model.
 
 Joint fitting uses normalized mask, tracking, depth, RGB and temporal losses,
 6D rotations, local translations, and transformation bounds. Three phases fit

@@ -33,9 +33,8 @@ def load_config(path):
     if not isinstance(config, dict) or "asset" not in config:
         raise ValueError("Configuration requires asset")
     video = config.get("video", {})
-    count = video.get("num_frames", 121)
-    if count < 5 or (count-1) % 4:
-        raise ValueError("Wan frame count must be 4k+1 and at least 5")
+    from .video_backends import validate_video
+    validate_video(video)
     if video.get("sample_frames", 25) < 3:
         raise ValueError("Optimization requires at least three sampled frames")
     if config.get("physics", {}).get("substeps", 4) < 1:

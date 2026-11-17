@@ -6,6 +6,23 @@ from pathlib import Path
 import numpy as np
 
 
+def rotate_rig(rig, degrees):
+    """Rotate normalized mesh and bind hierarchy together (extrinsic XYZ degrees)."""
+    x, y, z = np.deg2rad(degrees)
+    rx = np.array([[1, 0, 0], [0, np.cos(x), -np.sin(x)], [0, np.sin(x), np.cos(x)]])
+    ry = np.array([[np.cos(y), 0, np.sin(y)], [0, 1, 0], [-np.sin(y), 0, np.cos(y)]])
+    rz = np.array([[np.cos(z), -np.sin(z), 0], [np.sin(z), np.cos(z), 0], [0, 0, 1]])
+    rotation = rz @ ry @ rx
+    transform = np.eye(4)
+    transform[:3, :3] = rotation
+    result = {k: v.copy() for k, v in rig.items()}
+    result["vertices"] = result["vertices"] @ rotation.T
+    roots = result["parents"] < 0
+    result["local"][roots] = transform @ result["local"][roots]
+    result["inverse_bind"] = result["inverse_bind"] @ np.linalg.inv(transform)
+    return result
+
+
 def load_glb(path):
     raw = Path(path).read_bytes()
     magic, version, size = struct.unpack_from("<III", raw)
@@ -134,6 +151,11 @@ def load_rig(path):
             weights.append(weight)
             material = document.get("materials", [{}])[primitive.get("material", 0)]
             pbr = material.get("pbrMetallicRoughness", {})
+            legacy = material.get("extensions", {}).get("KHR_materials_pbrSpecularGlossiness")
+            if legacy:
+                pbr = {**pbr, "baseColorFactor": legacy.get("diffuseFactor", [1, 1, 1, 1])}
+                if "diffuseTexture" in legacy:
+                    pbr["baseColorTexture"] = legacy["diffuseTexture"]
             color = np.tile(np.asarray(pbr.get("baseColorFactor", [0.7, 0.7, 0.7, 1])[:3],
                                        dtype=float), (len(positions), 1))
             if "COLOR_0" in attrs:

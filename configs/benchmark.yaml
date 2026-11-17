@@ -3,3 +3,8 @@ configs:
   - configs/fox.yaml
   - configs/humanoid.yaml
   - configs/robot.yaml
+  - configs/horse-ltx.yaml
+  - configs/puppy-ltx.yaml
+  - configs/shark-ltx.yaml
+  - configs/seagull-ltx.yaml
+  - configs/sea_turtle-ltx.yaml

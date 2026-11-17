@@ -1,0 +1,67 @@
+{
+  "horse": {
+    "name": "Animated Rigged Horse With Saddle",
+    "url": "https://huggingface.co/datasets/allenai/objaverse/resolve/main/glbs/000-045/b08743c2c4734fb98a4e0a2f5767c318.glb",
+    "sha256": "173695209a0ef603ade8f7840944f5b20c9a3d7b3df4127567210b05d202e985",
+    "license": "CC BY 4.0",
+    "credit": "Ayan",
+    "source": "https://sketchfab.com/3d-models/b08743c2c4734fb98a4e0a2f5767c318",
+    "metadata_source": "https://sketchfab.com/3d-models/animated-rigged-horse-with-saddle-b08743c2c4734fb98a4e0a2f5767c318",
+    "faces": 32124,
+    "joints": 65,
+    "style": "textured naturalistic game asset",
+    "group": "animal"
+  },
+  "puppy": {
+    "name": "Puppy dog",
+    "url": "https://huggingface.co/datasets/allenai/objaverse/resolve/main/glbs/000-000/057dd0154cbc47549c73a092aa15199e.glb",
+    "sha256": "bba12a0dc3aef24136bad62cca6d38ff8190f97b122a7ce2fc8819c16948736c",
+    "license": "CC BY 4.0",
+    "credit": "sidarthmenon",
+    "source": "https://sketchfab.com/3d-models/057dd0154cbc47549c73a092aa15199e",
+    "metadata_source": "https://huggingface.co/datasets/allenai/objaverse/blob/main/metadata/000-000.json.gz",
+    "faces": 33384,
+    "joints": 122,
+    "style": "textured naturalistic game asset",
+    "group": "animal"
+  },
+  "shark": {
+    "name": "Porbeagle Shark",
+    "url": "https://huggingface.co/datasets/allenai/objaverse/resolve/main/glbs/000-000/f15298421b3d4e0fab4c43863a7e72fd.glb",
+    "sha256": "91ac2f19f866907a6cc2e2d53f16ec2669259b6eb456da901977e1f3e2cbe811",
+    "license": "CC BY 4.0",
+    "credit": "ghostlyfail",
+    "source": "https://sketchfab.com/3d-models/f15298421b3d4e0fab4c43863a7e72fd",
+    "metadata_source": "https://huggingface.co/datasets/allenai/objaverse/blob/main/metadata/000-000.json.gz",
+    "faces": 10000,
+    "joints": 22,
+    "style": "textured naturalistic game asset",
+    "group": "animal"
+  },
+  "seagull": {
+    "name": "Seagull",
+    "url": "https://huggingface.co/datasets/allenai/objaverse/resolve/main/glbs/000-000/dc42ffc81c86480e9e7f7752fa134174.glb",
+    "sha256": "5d5e5b6897b54db20280603eff57fc0aa2c816957349eec5231d5419747143af",
+    "license": "CC BY 4.0",
+    "credit": "Dayvable",
+    "source": "https://sketchfab.com/3d-models/dc42ffc81c86480e9e7f7752fa134174",
+    "metadata_source": "https://huggingface.co/datasets/allenai/objaverse/blob/main/metadata/000-000.json.gz",
+    "faces": 4352,
+    "joints": 15,
+    "style": "textured naturalistic game asset",
+    "group": "animal"
+  },
+  "sea_turtle": {
+    "name": "Model 51 - Kemps Ridley Sea Turtle (with ID)",
+    "url": "https://huggingface.co/datasets/allenai/objaverse/resolve/main/glbs/000-000/a0f6c4da88e644ac90c6f6a973ce11cc.glb",
+    "sha256": "a87d4b6c7b16aa4b98a3f1bf5ec8ebc15f29e201449cad8f63c932444131f999",
+    "license": "CC BY 4.0",
+    "credit": "DigitalLife3D",
+    "source": "https://sketchfab.com/3d-models/a0f6c4da88e644ac90c6f6a973ce11cc",
+    "metadata_source": "https://huggingface.co/datasets/allenai/objaverse/blob/main/metadata/000-000.json.gz",
+    "faces": 27796,
+    "joints": 44,
+    "style": "textured naturalistic game asset",
+    "group": "animal"
+  }
+}

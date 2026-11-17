@@ -1,0 +1,8 @@
+asset: horse
+video:
+  backend: ltx
+  prompt: A horse gently turns its head and shifts its stance, whole body visible, static camera and unchanged plain background.
+  seed: 2026
+  num_frames: 49
+  sample_frames: 25
+  fps: 24

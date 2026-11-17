@@ -25,6 +25,11 @@ ASSET_HASHES = {
     "robot": "047f5e5fb3bb6d378bd1df16ca6137f2a596c99b3a1b5690b4020c05aaf6f319",
 }
 
+ANIMAL_ASSETS = json.loads(Path(__file__).with_name("animal_assets.json").read_text())
+for _name, _spec in ANIMAL_ASSETS.items():
+    ASSETS[_name] = (_spec["name"], _spec["url"], _spec["license"], _spec["credit"])
+    ASSET_HASHES[_name] = _spec["sha256"]
+
 
 def fetch_asset(name, root):
     display, url, license, credit = ASSETS[name]
@@ -47,6 +52,9 @@ def fetch_asset(name, root):
         "license": license,
         "credit": f"{display} by {credit}, {license}",
         "skin": inspect_skin(path),
+        **({"source": ANIMAL_ASSETS[name]["source"],
+            "metadata_source": ANIMAL_ASSETS[name]["metadata_source"],
+            "style": ANIMAL_ASSETS[name]["style"]} if name in ANIMAL_ASSETS else {}),
     })
     return path
 
@@ -55,9 +63,10 @@ def main():
     parser = argparse.ArgumentParser(description="AniMimic reproduction tools")
     sub = parser.add_subparsers(dest="command", required=True)
     assets = sub.add_parser("assets")
-    assets.add_argument("action", choices=["list", "fetch"])
+    assets.add_argument("action", choices=["list", "fetch", "preview"])
     assets.add_argument("--asset", choices=ASSETS)
     assets.add_argument("--root", default="assets/downloads")
+    assets.add_argument("--output", default="runs/asset-previews")
     inspect = sub.add_parser("inspect")
     inspect.add_argument("path")
     preflight = sub.add_parser("preflight")
@@ -66,12 +75,26 @@ def main():
     run.add_argument("--config", required=True)
     run.add_argument("--from-stage")
     run.add_argument("--force-stage")
+    run.add_argument("--video-backend", choices=("wan", "ltx"))
+    videos = sub.add_parser("video")
+    videos.add_argument("--config", required=True)
+    videos.add_argument("--image", required=True)
+    videos.add_argument("--output", required=True)
     args = parser.parse_args()
     if args.command == "assets":
         if args.action == "list":
-            print("\n".join(ASSETS))
+            for name in ASSETS:
+                if name in ANIMAL_ASSETS:
+                    spec = ANIMAL_ASSETS[name]
+                    print(f"{name:12} animal   {spec['faces']:6} triangles  {spec['style']}")
+                else:
+                    style = "low-poly animal debug" if name == "fox" else "human/robot debug"
+                    print(f"{name:12} debug           {style}")
         elif not args.asset:
-            parser.error("assets fetch requires --asset")
+            parser.error("assets fetch/preview requires --asset")
+        elif args.action == "preview":
+            from .asset_preview import preview_asset
+            print(preview_asset(fetch_asset(args.asset, args.root), args.output, args.asset))
         else:
             print(fetch_asset(args.asset, args.root))
     elif args.command == "inspect":
@@ -83,9 +106,39 @@ def main():
         for name in (args.from_stage, args.force_stage):
             if name and name not in STAGES:
                 parser.error(f"Unknown stage {name}")
-        print(run(load_config(args.config), args.force_stage, args.from_stage))
+        config = load_config(args.config)
+        if args.video_backend:
+            current = config.setdefault("video", {}).get("backend", "wan")
+            if args.video_backend != current:
+                # Backend-specific model IDs and generation settings cannot be reused.
+                keep = ("prompt", "negative_prompt", "seed", "sample_frames")
+                original = config["video"]
+                config["video"] = {k: original[k] for k in keep if k in original}
+                config["video"]["backend"] = args.video_backend
+        print(run(config, args.force_stage, args.from_stage))
+    elif args.command == "video":
+        from .video_backends import generate_video
+        from .core import Cache
+        config = load_config(args.config)
+        from .pipeline import repo_revision
+        from .video_backends import backend_name
+        video = config["video"]
+        backend = backend_name(video)
+        inputs = {"image": file_hash(args.image), "config": video, "backend": backend,
+                  "code": file_hash(Path(__file__).with_name("video_backends.py"))}
+        if backend == "wan":
+            inputs["revision"] = repo_revision(video.get("repo", "third_party/Wan2.2"))
+        def produce(directory):
+            generate_video(args.image, directory/"reference.mp4", video)
+            return ["reference.mp4"]
+        directory = Cache(config.get("cache_root", ".cache/animimic")).run(
+            "standalone-video", inputs, produce)
+        output = Path(args.output)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        if output.resolve() != (directory/"reference.mp4").resolve():
+            shutil.copyfile(directory/"reference.mp4", output)
+        print(output)
     else:
-        load_config(args.config)
         missing = []
         config = load_config(args.config)
         for module in ["torch", "pytorch3d", "sam2", "vggt", "meshio", "imageio"]:
@@ -96,8 +149,18 @@ def main():
         print(f"fTetWild: {shutil.which('FloatTetwild_bin') or 'missing'}")
         if not shutil.which("FloatTetwild_bin"):
             missing.append("fTetWild")
-        for name, entry in [("Wan2.2", "generate.py"), ("alltracker", "nets/alltracker.py")]:
-            repo = Path("third_party")/name/entry
+        from .video_backends import backend_name
+        entries = [("alltracker", Path("third_party/alltracker/nets/alltracker.py"))]
+        if backend_name(config.get("video", {})) == "wan" and not config.get("reference_video"):
+            entries.append(("Wan2.2", Path(config.get("video", {}).get(
+                "repo", "third_party/Wan2.2"))/"generate.py"))
+        elif backend_name(config.get("video", {})) == "ltx" and not config.get("reference_video"):
+            for module in ("diffusers", "transformers", "accelerate", "sentencepiece"):
+                ok = importlib.util.find_spec(module) is not None
+                print(f"{module}: {'installed' if ok else 'missing'}")
+                if not ok:
+                    missing.append(module)
+        for name, repo in entries:
             print(f"{name}: {'present' if repo.exists() else 'missing'}")
             if not repo.exists():
                 missing.append(name)

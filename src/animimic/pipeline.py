@@ -24,8 +24,9 @@ def run(config, force_stage=None, from_stage=None):
     import torch
     from PIL import Image
     from .cli import fetch_asset
-    from .glb import load_rig
-    from .models import generate_video, sample_video, segment_frames, track_frames, estimate_depth
+    from .glb import load_rig, rotate_rig
+    from .models import sample_video, segment_frames, track_frames, estimate_depth
+    from .video_backends import generate_video, backend_name
     from .optimize import tensors, fit_joints
     from .physics import tetrahedralize, fit_material
     from .render import Renderer
@@ -70,9 +71,13 @@ def run(config, force_stage=None, from_stage=None):
         return directory
 
     def prepare(out):
-        np.savez_compressed(out/"rig.npz", **load_rig(asset))
+        data = load_rig(asset)
+        if config.get("asset_rotation"):
+            data = rotate_rig(data, config["asset_rotation"])
+        np.savez_compressed(out/"rig.npz", **data)
         return ["rig.npz"]
-    prepared = stage("prepare", {}, {"asset": file_hash(asset)}, prepare, ["glb.py"])
+    settings = {"rotation": config["asset_rotation"]} if config.get("asset_rotation") else {}
+    prepared = stage("prepare", settings, {"asset": file_hash(asset)}, prepare, ["glb.py"])
     raw = dict(np.load(prepared/"rig.npz"))
     rig = tensors(raw, device)
     camera = config.get("camera", {})
@@ -96,10 +101,15 @@ def run(config, force_stage=None, from_stage=None):
             generate_video(rendered/"canonical.png", out/"reference.mp4", video_config)
         return ["reference.mp4"]
     video_inputs = {"image": file_hash(rendered/"canonical.png")}
-    video_inputs["wan_revision"] = repo_revision(video_config.get("repo", "third_party/Wan2.2"))
+    backend = backend_name(video_config)
+    if backend == "wan":
+        video_inputs["wan_revision"] = repo_revision(video_config.get("repo", "third_party/Wan2.2"))
+    else:
+        video_inputs["backend"] = backend
     if config.get("reference_video"):
         video_inputs["external_video"] = file_hash(config["reference_video"])
-    generated = stage("video", video_config, video_inputs, video, ["models.py"])
+    generated = stage("video", video_config, video_inputs, video,
+                      ["models.py"] if backend == "wan" else ["video_backends.py"])
     def supervise(out):
         frames, indices = sample_video(generated/"reference.mp4", out/"frames",
             video_config.get("sample_frames", 25), renderer.size[::-1])
