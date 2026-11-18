@@ -1,0 +1,6 @@
+# Prevent upstream requirements from silently replacing the supported core stack.
+torch==2.6.0
+torchvision==0.21.0
+diffusers==0.35.1
+transformers==4.51.3
+warp-lang==1.19.0

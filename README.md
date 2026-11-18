@@ -12,6 +12,93 @@ rigged GLB → canonical image → Wan / LTX 影片
 不需要訓練模型。每段參考影片與 supervision 都會存檔、快取。
 第一次使用建議先跑 **LTX 2B 的單獨影片生成**，成功後再安裝完整 pipeline。
 
+## 直接執行 sh 腳本（建議入口）
+
+已把步驟拆成多個 Bash 腳本。在 GPU 主機同步／clone 完專案後，先進入目錄：
+
+```bash
+cd ~/animimic-reproduce
+bash scripts/01_create_env.sh
+bash scripts/02_install_video.sh
+```
+
+`01` 會建立 repo 內的 Python 3.11 `.venv`；若已存在相容環境就沿用，
+不會刪除既有環境。它優先使用系統 `python3.11`，否則使用 Conda。
+如果兩者都沒有，先執行 `bash scripts/00_install_miniforge.sh`，再重跑 `01`。
+後續腳本會自動使用此環境，不必手動 activate，也不會使用系統 Python 3.8。
+
+只生成 LTX 影片，準備自己的圖片後執行：
+
+```bash
+bash scripts/07_generate_video.sh inputs/reference.png configs/fox-ltx.yaml runs/reference-ltx.mp4
+```
+
+完整 pipeline，接著依序執行：
+
+```bash
+# 先依下方第 6.1 節載入主機的 CUDA 12.4 toolkit，確認 nvcc --version。
+bash scripts/03_install_pipeline.sh ltx
+bash scripts/04_build_tetwild.sh
+bash scripts/05_fetch_assets.sh horse
+bash scripts/06_check.sh configs/horse-ltx.yaml
+bash scripts/08_run_pipeline.sh configs/horse-ltx.yaml
+```
+
+不要在前一個步驟失敗時直接繼續下一個。腳本不會使用 sudo 安裝系統驅動，
+完整 pipeline 仍需主機提供相容的 CUDA compiler／C++ compiler。
+若 `01` 建立的是 Conda prefix，`04` 會在該環境安裝 CMake/GMP；
+使用一般 venv 時，CMake/GMP/C++ compiler 需由系統提供（見 6.1）。
+`03` 使用 `scripts/runtime-constraints.txt` 防止上游依賴靜默替換固定版本；
+若版本衝突，pip 會報錯並停止。
+
+| 腳本 | 用途／預設 |
+| --- | --- |
+| `00_install_miniforge.sh` | 選用；安裝到 ~/miniforge3 |
+| `01_create_env.sh` | 建立／檢查 Python 環境 |
+| `02_install_video.sh` | CUDA PyTorch 2.6 + LTX 依賴 |
+| `03_install_pipeline.sh [ltx\|wan]` | supervision、PyTorch3D、FEM 依賴；預設 ltx |
+| `04_build_tetwild.sh` | 編譯 fTetWild |
+| `05_fetch_assets.sh [角色 ...]` | 下載指定角色；預設 horse |
+| `06_check.sh [CONFIG]` | 完整環境 preflight |
+| `07_generate_video.sh IMAGE [CONFIG] [OUTPUT]` | 單獨生成／重用快取影片 |
+| `08_run_pipeline.sh [CONFIG] [RUN FLAGS ...]` | 完整 pipeline；預設 horse-ltx |
+| `09_download_wan.sh` | 選用；下載 Wan 5B 權重 |
+| `10_tests.sh` | offline tests + pip check |
+| `11_preview_asset.sh [角色]` | CPU 多視角資產預覽；預設 horse |
+
+每個入口都可用 `--help` 查看參數。例如：
+
+```bash
+bash scripts/08_run_pipeline.sh --help
+bash scripts/05_fetch_assets.sh horse puppy shark
+bash scripts/08_run_pipeline.sh configs/horse-ltx.yaml --from-stage joints
+bash scripts/11_preview_asset.sh puppy
+bash scripts/10_tests.sh
+```
+
+切換 Wan：
+
+```bash
+bash scripts/03_install_pipeline.sh wan
+bash scripts/09_download_wan.sh
+bash scripts/06_check.sh configs/fox.yaml
+bash scripts/08_run_pipeline.sh configs/fox.yaml
+```
+
+腳本自動設定 HF/Torch cache 到 repo 的 `.cache/`，也會自動加入 fTetWild 的 PATH。
+若要沿用已建立的其他環境，將 `ANIMIMIC_ENV_DIR` 指向該環境根目錄。
+GPU 編號、下載快取位置和編譯平行度都可由外部設定，既有設定會保留：
+
+```bash
+CUDA_VISIBLE_DEVICES=0 bash scripts/08_run_pipeline.sh configs/horse-ltx.yaml
+MAX_JOBS=1 bash scripts/03_install_pipeline.sh ltx
+# 只有在使用其他已存在的 Python 環境時才需要：
+ANIMIMIC_ENV_DIR="$HOME/miniforge3/envs/animimic" bash scripts/06_check.sh
+```
+
+腳本可從其他工作目錄以絕對路徑呼叫；自己傳入的相對檔案路徑，
+依「呼叫時的工作目錄」解析。以下各節保留逐步指令，方便了解與排錯。
+
 ## 1. 系統與版本
 
 以下指令以 **Linux x86-64、Bash、NVIDIA CUDA GPU** 為例；Windows 請在
