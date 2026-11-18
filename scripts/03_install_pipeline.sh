@@ -5,11 +5,7 @@ backend="${1:-ltx}"
 [[ "$backend" == ltx || "$backend" == wan ]] || die "Backend must be ltx or wan."
 require_cuda
 command -v git >/dev/null || die "git is required."
-command -v nvcc >/dev/null || die "Load the server CUDA 12.4 toolkit/module first (nvcc missing)."
-nvcc --version | grep -q 'release 12.4' || die "Use CUDA toolkit 12.4 with this cu124 installation."
-if [[ -z "${CUDA_HOME:-}" ]]; then
-    export CUDA_HOME="$(dirname -- "$(dirname -- "$(readlink -f -- "$(command -v nvcc)")")")"
-fi
+use_cuda_toolkit
 export MAX_JOBS="${MAX_JOBS:-2}"
 export PIP_CONSTRAINT="$ANIMIMIC_ROOT/scripts/runtime-constraints.txt"
 "$ANIMIMIC_PYTHON" -m pip install -e '.[gpu,video]'

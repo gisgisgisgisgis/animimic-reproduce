@@ -36,7 +36,8 @@ bash scripts/07_generate_video.sh inputs/reference.png configs/fox-ltx.yaml runs
 完整 pipeline，接著依序執行：
 
 ```bash
-# 先依下方第 6.1 節載入主機的 CUDA 12.4 toolkit，確認 nvcc --version。
+# 若主機找不到 nvcc，先安裝使用者目錄內的 toolkit：
+bash scripts/12_install_cuda_toolkit.sh
 bash scripts/03_install_pipeline.sh ltx
 bash scripts/04_build_tetwild.sh
 bash scripts/05_fetch_assets.sh horse
@@ -65,6 +66,7 @@ bash scripts/08_run_pipeline.sh configs/horse-ltx.yaml
 | `09_download_wan.sh` | 選用；下載 Wan 5B 權重 |
 | `10_tests.sh` | offline tests + pip check |
 | `11_preview_asset.sh [角色]` | CPU 多視角資產預覽；預設 horse |
+| `12_install_cuda_toolkit.sh` | 選用；在 .cache/cuda-12.4 安裝 nvcc / CUDA toolkit，不更動 driver |
 
 每個入口都可用 `--help` 查看參數。例如：
 
@@ -265,6 +267,19 @@ which nvcc
 ```
 
 對本文 cu124 路徑，請使用 CUDA toolkit 12.4。
+若 `03_install_pipeline.sh` 顯示 `nvcc missing`，可直接執行：
+
+```bash
+bash scripts/12_install_cuda_toolkit.sh
+bash scripts/03_install_pipeline.sh ltx
+```
+
+這會透過 Conda 在 repo 的 `.cache/cuda-12.4` 安裝 NVIDIA
+CUDA toolkit 12.4.1，不需要 sudo，也不會替換系統驅動或 Python 環境。
+後續 `03` 會自動找到它；下載可能需要數 GB 空間。
+需先有 Conda（沒有時可使用 `00_install_miniforge.sh`）。
+官方安裝來源：[NVIDIA CUDA 12.4.1 Linux guide](https://docs.nvidia.com/cuda/archive/12.4.1/cuda-installation-guide-linux/index.html)。
+
 若伺服器提供 environment modules，先用 `module avail cuda` 找可用版本，
 再依主機實際名稱載入。若已裝在 `/usr/local/cuda-12.4`，可以設定：
 

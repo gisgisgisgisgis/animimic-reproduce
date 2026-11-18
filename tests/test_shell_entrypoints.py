@@ -11,6 +11,20 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class ShellEntrypointTests(unittest.TestCase):
+    def test_cuda_home_is_discovered_and_added_to_path(self):
+        with tempfile.TemporaryDirectory(prefix="animimic cuda ") as temporary:
+            prefix = Path(temporary)
+            (prefix/"bin").mkdir()
+            nvcc = prefix/"bin/nvcc"
+            nvcc.write_text("#!/bin/sh\nprintf 'Cuda compilation tools, release 12.4, V12.4.131\\n'\n")
+            nvcc.chmod(0o755)
+            result = subprocess.run(
+                ["bash", "-c", 'source "$1"; use_cuda_toolkit; command -v nvcc',
+                 "test", str(ROOT/"scripts/_common.sh")],
+                env={**os.environ, "CUDA_HOME": str(prefix)},
+                capture_output=True, text=True, check=True)
+            self.assertEqual(result.stdout.strip(), str(nvcc))
+
     def invoke(self, script, args):
         with tempfile.TemporaryDirectory(prefix="animimic shell ") as temporary:
             caller = Path(temporary)

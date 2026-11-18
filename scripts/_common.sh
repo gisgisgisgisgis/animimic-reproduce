@@ -41,3 +41,23 @@ caller_path() {
     if [[ "$1" == /* ]]; then printf '%s\n' "$1"; else printf '%s/%s\n' "$ANIMIMIC_CALLER_DIR" "$1"; fi
 }
 run_cli() { "$ANIMIMIC_PYTHON" -m animimic.cli "$@"; }
+
+use_cuda_toolkit() {
+    # Prefer an explicitly configured CUDA_HOME, then a toolkit already on PATH.
+    if [[ -n "${CUDA_HOME:-}" && -x "$CUDA_HOME/bin/nvcc" ]]; then
+        export PATH="$CUDA_HOME/bin:$PATH"
+    elif command -v nvcc >/dev/null 2>&1; then
+        export CUDA_HOME="$(dirname -- "$(dirname -- "$(readlink -f -- "$(command -v nvcc)")")")"
+    else
+        local candidate
+        for candidate in "$ANIMIMIC_ROOT/.cache/cuda-12.4" "$ANIMIMIC_ENV_DIR" /usr/local/cuda-12.4; do
+            if [[ -x "$candidate/bin/nvcc" ]]; then
+                export CUDA_HOME="$candidate"
+                export PATH="$CUDA_HOME/bin:$PATH"
+                break
+            fi
+        done
+    fi
+    command -v nvcc >/dev/null || die "nvcc missing. Run bash scripts/12_install_cuda_toolkit.sh, then rerun this script."
+    nvcc --version | grep -q 'release 12.4' || die "CUDA toolkit must be 12.4. Set CUDA_HOME to the correct toolkit, or run 12_install_cuda_toolkit.sh."
+}
