@@ -1,114 +1,415 @@
 # AniMimic reproduction
 
-Research implementation of AniMimic using existing rigged meshes:
+將現成 rigged 3D mesh 的動作對齊到 I2V 生成的參考影片，並用可微分 FEM 做第二階段 refinement：
 
 ```text
-GLB → canonical render → cached Wan / LTX I2V → SAM2 / AllTracker / VGGT
-    → joint optimization → fTetWild → differentiable FEM → NPZ / GLB / MP4
+rigged GLB → canonical image → Wan / LTX 影片
+           → SAM2 mask + AllTracker tracks + VGGT depth
+           → joint optimization → fTetWild → FEM material optimization
+           → GLB / NPZ / MP4
 ```
 
-All stages are connected by `animimic run`. Numerical tests run on CPU.
-The complete pretrained-model pipeline has **not been executed on a 4090** in
-this environment, which has no accessible NVIDIA GPU. Generated benchmark
-quality, runtime and peak GPU memory are therefore unverified.
+不需要訓練模型。每段參考影片與 supervision 都會存檔、快取。
+第一次使用建議先跑 **LTX 2B 的單獨影片生成**，成功後再安裝完整 pipeline。
 
-For lighter local generation, select **LTX-Video 2B** with
-`animimic run --config configs/horse-ltx.yaml`. Wan remains available unchanged.
-See [本地影片模型切換、八個資產與實際預覽](docs/local-video.md) for setup,
-standalone video generation and the five additional textured animal models.
+## 1. 系統與版本
 
-Use Python 3.11 or 3.12 in an isolated virtual environment. Install a CUDA
-PyTorch build compatible with the target machine first:
+以下指令以 **Linux x86-64、Bash、NVIDIA CUDA GPU** 為例；Windows 請在
+有 GPU 支援的 WSL2 內操作。在遠端伺服器上，安裝和執行指令都要在該伺服器的
+終端機執行，而不是在自己的筆電另建一份環境。
+
+| 項目 | 使用版本／用途 |
+| --- | --- |
+| Python | 建議 **3.11**；程式要求至少 3.11，不能使用 3.8 |
+| PyTorch | **2.6.0** |
+| torchvision | **0.21.0**，搭配上述 PyTorch |
+| CUDA wheel | 本文使用 **cu124**；驅動需相容 CUDA 12.4 |
+| CUDA toolkit / nvcc | 完整 pipeline 編譯 PyTorch3D 時需要，本文搭配 **12.4** |
+| Diffusers | **0.35.1** |
+| Transformers | **4.51.3** |
+| Accelerate | 套件要求 >=1.2、<2；本地使用 1.10.1 |
+| Warp | **1.19.0**，FEM backend |
+| PyTorch3D | bootstrap 固定在 `3eac7c62fed39a09768cd08119c5e1bf4daef559` |
+| fTetWild | 由官方 source 編譯，執行檔為 `FloatTetwild_bin` |
+
+版本來源見 [pyproject.toml](pyproject.toml)；
+[requirements-tested.txt](requirements-tested.txt) 記錄數值測試環境，
+不是包含所有上游模型的完整 CUDA lockfile。
+
+先確認主機看得到 GPU：
 
 ```bash
-pip install -e '.[gpu]'
-python scripts/bootstrap.py
-# Build third_party/fTetWild with CMake and add FloatTetwild_bin to PATH.
-# Download Wan-AI/Wan2.2-TI2V-5B to weights/Wan2.2-TI2V-5B.
+nvidia-smi
 ```
 
-PyTorch 2.6 / torchvision 0.21 are pinned because the newest PyTorch build
-tested here failed to compile PyTorch3D. CPU numerical versions are recorded
-in `requirements-tested.txt`.
+`nvidia-smi` 顯示的是 driver 支援的 CUDA 版本；
+`torch.version.cuda` 是 PyTorch wheel 的版本；
+`nvcc --version` 是編譯工具版本，三者不是同一件事。
+只生成影片不需要 nvcc，編譯 PyTorch3D 才需要。
 
-The bootstrap script clones official inference repositories, installs their
-dependencies, and records their Git revisions in `third_party/revisions.json`.
-Upstream CUDA build dependencies may require machine-specific installation.
+沒有 sudo 的實驗室主機，驅動與編譯工具請使用管理員提供的環境／module，
+不要自行更動系統 driver。若有多張 GPU，依實驗室排程規則選擇可用卡，
+例如 `CUDA_VISIBLE_DEVICES=0 animimic ...`。
+
+## 2. 下載專案
+
+```bash
+git clone https://github.com/gisgisgisgisgis/animimic-reproduce.git
+cd animimic-reproduce
+```
+
+後面的相對路徑都以此目錄為準。已經 clone 的人只需進入原目錄，
+有需要時執行 `git pull --ff-only`，不要在別的專案裡安裝。
+
+## 3. 建立虛擬環境：二選一
+
+不要同時疊加 Conda 和 venv。下面兩條路徑擇一完成即可。
+
+### A. Conda / Miniforge（系統 Python 太舊時建議用這個）
+
+已有 conda 可直接建立環境：
+
+```bash
+conda create -n animimic python=3.11 pip -y
+conda activate animimic
+python --version
+python -m pip --version
+```
+
+預期 Python 顯示 `3.11.x`，pip 路徑也應位於 `animimic` 環境。
+
+如果沒有 conda，可先依 [Miniforge 官方說明](https://github.com/conda-forge/miniforge)
+安裝。Linux x86-64 的一種做法如下；安裝路徑若已存在，直接使用原有安裝：
+
+```bash
+curl -L https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-Linux-x86_64.sh -o /tmp/Miniforge3-Linux-x86_64.sh
+bash /tmp/Miniforge3-Linux-x86_64.sh -b -p "$HOME/miniforge3"
+source "$HOME/miniforge3/etc/profile.d/conda.sh"
+conda create -n animimic python=3.11 pip -y
+conda activate animimic
+```
+
+### B. Python venv（已經有 Python 3.11）
+
+先檢查 interpreter；找不到 `python3.11` 時，請改用上面的 Conda 路徑。
+Ubuntu 的 Python 3.11 若缺 venv 模組，需要先安裝對應的
+`python3.11-venv` 套件，或請管理員安裝。
+
+```bash
+python3.11 --version
+python3.11 -m venv .venv
+source .venv/bin/activate
+python --version
+python -m pip --version
+```
+
+`python3 -m venv` 會沿用系統的 Python；
+若系統是 3.8，建立出的環境仍是 3.8，不會自動變成 3.11。
+已有舊版環境時，請另取新環境名稱或使用 Conda，不要沿用舊環境。
+
+每次重新開終端機，都要重新 `conda activate animimic`，
+或在 repo 內 `source .venv/bin/activate`。
+
+## 4. 安裝 CUDA PyTorch 與專案
+
+在剛建立的環境裡執行：
+
+```bash
+python -m pip install --upgrade pip setuptools wheel
+python -m pip install torch==2.6.0 torchvision==0.21.0 --index-url https://download.pytorch.org/whl/cu124
+python -c "import torch; print('torch:', torch.__version__); print('wheel CUDA:', torch.version.cuda); print('GPU available:', torch.cuda.is_available())"
+```
+
+預期 torch 為 `2.6.0+cu124`、wheel CUDA 為 `12.4`、
+GPU available 為 `True`。若為 False，先處理 GPU/driver/容器配置，
+不要繼續下載大型權重。其他 CUDA wheel 組合請對照
+[PyTorch 官方舊版安裝表](https://pytorch.org/get-started/previous-versions/)。
+
+## 5. 路徑一：先只生成一段 LTX 影片
+
+這條路徑不需要 SAM2、AllTracker、VGGT、PyTorch3D 或 fTetWild。
+
+```bash
+python -m pip install -e '.[video]'
+python -m pip check
+animimic --help
+```
+
+準備一張自己的 PNG/JPG，例如 `inputs/reference.png`。
+路徑需改成你實際存放的圖片：
+
+```bash
+animimic video --config configs/fox-ltx.yaml --image inputs/reference.png --output runs/reference-ltx.mp4
+```
+
+首次執行自動下載 `Lightricks/LTX-Video` 的原始 2B 權重及 text encoder。
+預設 512×288、49 幀、30 steps，並啟用 CPU offload。
+offload 使用 CPU RAM 暫存部分模型，生成仍使用 GPU。
+
+輸出為 `runs/reference-ltx.mp4`。相同圖片、prompt、seed 與設定重跑會讀快取。
+範例 prompt 寫的是 fox；換成自己的圖片時，請複製 YAML 並修改
+`video.prompt`，讓文字描述符合圖片。
+
+## 6. 路徑二：完整 3D animation pipeline
+
+先完成第 1–4 節，再做本節。若已安裝 video extra，可以直接繼續。
+
+### 6.1 系統工具與 CUDA compiler
+
+Ubuntu/Debian 有 sudo 時可安裝一般編譯工具：
+
+```bash
+sudo apt update
+sudo apt install -y git build-essential cmake libgmp-dev ffmpeg
+```
+
+沒有 sudo 時，請使用主機已提供的 compiler、CMake、GMP。
+Conda 使用者也可在自己的環境安裝 CMake/GMP：
+
+```bash
+conda install -c conda-forge cmake gmp -y
+```
+
+接著確認 CUDA toolkit：
+
+```bash
+nvcc --version
+which nvcc
+```
+
+對本文 cu124 路徑，請使用 CUDA toolkit 12.4。
+若伺服器提供 environment modules，先用 `module avail cuda` 找可用版本，
+再依主機實際名稱載入。若已裝在 `/usr/local/cuda-12.4`，可以設定：
+
+```bash
+export CUDA_HOME=/usr/local/cuda-12.4
+export PATH="$CUDA_HOME/bin:$PATH"
+nvcc --version
+```
+
+路徑只是一個範例；請使用主機實際的 toolkit 路徑。
+CUDA compiler 對 GCC 版本有要求，請搭配該 toolkit 支援的 compiler；
+編譯失敗時不要直接加 `--allow-unsupported-compiler` 略過檢查。
+
+### 6.2 Python 與上游模型套件
+
+```bash
+python -m pip install -e '.[gpu,video]'
+MAX_JOBS=2 python scripts/bootstrap.py --video-backend ltx
+python -m pip check
+```
+
+bootstrap 會 clone 並安裝 AllTracker、SAM2、VGGT、PyTorch3D，
+clone fTetWild source，並記錄 Git revision 到 `third_party/revisions.json`。
+LTX 路徑不 clone Wan；已存在的 Wan 目錄與版本記錄會保留。
+
+PyTorch3D 需要 C++/CUDA 編譯，第一次安裝較久。
+記憶體不足時把 `MAX_JOBS=2` 改成 `MAX_JOBS=1`。
+上游 requirements 會隨版本變動；若 pip 報衝突，保留錯誤訊息，
+不要任意升級本專案固定的 torch/torchvision。
+安裝後再檢查一次：
+
+```bash
+python -c "import torch, torchvision; print(torch.__version__, torchvision.__version__, torch.cuda.is_available())"
+python -c "from pytorch3d import _C; from sam2.sam2_video_predictor import SAM2VideoPredictor; from vggt.models.vggt import VGGT; print('imports OK')"
+```
+
+### 6.3 編譯 fTetWild
+
+在 repo 根目錄執行：
+
+```bash
+cmake -S third_party/fTetWild -B third_party/fTetWild/build -DCMAKE_BUILD_TYPE=Release
+cmake --build third_party/fTetWild/build --parallel 2
+export PATH="$PWD/third_party/fTetWild/build:$PATH"
+FloatTetwild_bin --help
+```
+
+預期最後能列出 fTetWild CLI 的參數。如果 CMake 找不到 GMP，
+請確認已裝 `libgmp-dev`；Conda 環境可嘗試在 configure 指令追加
+`-DCMAKE_PREFIX_PATH="$CONDA_PREFIX"`。
+編譯方式可參考 [fTetWild 官方文件](https://github.com/wildmeshing/fTetWild)。
+
+上述 PATH 設定只對目前終端機有效，每次重新登入需要再設定。
+也可在 YAML 指定執行檔的絕對路徑：
+
+```yaml
+physics:
+  tetwild_executable: /absolute/path/to/FloatTetwild_bin
+```
+
+### 6.4 下載一個動物並檢查環境
 
 ```bash
 animimic assets list
-animimic assets fetch --asset fox
-animimic inspect assets/downloads/fox/model.glb
-animimic preflight --config configs/fox.yaml
-animimic run --config configs/fox.yaml
-animimic run --config configs/fox.yaml --from-stage joints
-animimic run --config configs/fox.yaml --force-stage supervision
-PYTHONPATH=src python -m unittest discover -s tests -v
+animimic assets fetch --asset horse
+animimic inspect assets/downloads/horse/model.glb
+animimic assets preview --asset horse --output runs/asset-previews
+animimic preflight --config configs/horse-ltx.yaml
 ```
 
-Use `configs/humanoid.yaml` or `configs/robot.yaml` for the original debug benchmarks.
-The expanded set also includes horse, puppy, shark, seagull and sea turtle,
-with individual `configs/<asset>-ltx.yaml` presets.
-Set `asset_path` to use a local rigged GLB; `asset` remains its run label.
-Set `reference_video` to reuse an external video instead of generating one.
-Set `device: cpu` for small numerical experiments with a CPU PyTorch3D build.
+資產會存到 `assets/downloads/horse/`，包含 GLB、hash 與 attribution manifest。
+preview 輸出 `runs/asset-previews/horse.png`。
+preflight 會檢查完整 pipeline 的套件、repo、CUDA 與 fTetWild；
+有任何 missing 時先修正，再執行完整流程。
 
-Each stage writes a content-addressed artifact directory. The run's
-`manifest.json` records paths and SHA-256 hashes. A corrupted cached file causes
-that stage to rerun. Video keys exclude joint/FEM settings, so tuning those
-settings reuses reference videos. Changing prompt, seed or canonical image
-creates a new video key. Force flags intentionally overwrite a stage's cached
-artifacts; keep the original manifest/video if comparing stochastic reruns.
+### 6.5 開始執行
 
-Original debug assets (downloaded individually; manifests retain hashes and credits):
+```bash
+animimic run --config configs/horse-ltx.yaml
+```
 
-| Asset | Source | License |
+首次執行會依序下載／執行所需權重：
+
+| 模組 | 預設權重來源 | 下載方式 |
 | --- | --- | --- |
-| Fox | [Khronos](https://github.com/KhronosGroup/glTF-Sample-Assets/tree/main/Models/Fox) | CC BY 4.0; PixelMannen, tomkranis, AsoboStudio, scurest |
-| CesiumMan | [Khronos](https://github.com/KhronosGroup/glTF-Sample-Assets/tree/main/Models/CesiumMan) | CC BY 4.0; Cesium; logo trademark reserved |
-| RobotExpressive | [three.js](https://github.com/mrdoob/three.js/tree/dev/examples/models/gltf/RobotExpressive) | CC0; Tomas Laulhe / Quaternius, Don McCurdy |
+| LTX | `Lightricks/LTX-Video` | 首次推論自動下載 |
+| SAM2 | `facebook/sam2.1-hiera-large` | 首次 supervision 自動下載 |
+| AllTracker | `aharley/alltracker/alltracker.pth` | 首次 tracking 自動下載 |
+| VGGT | `facebook/VGGT-1B` | 首次 depth inference 自動下載 |
+| Wan | `Wan-AI/Wan2.2-TI2V-5B` | 改用 Wan 時手動下載，見下一節 |
 
-Bake3D downloads returned HTTP 403 during implementation, so the benchmark uses
-these public alternatives. Downloaded assets, weights and runs are ignored by Git.
-The five naturalistic animal additions are individually fetched from Objaverse,
-with original source/CC BY attribution and pinned hashes in
-`src/animimic/animal_assets.json`. Their previews and face/joint counts are in
-[the asset guide](docs/local-video.md). Fox is explicitly a low-poly debug model.
+權重可能佔用大量磁碟空間。預設 Hugging Face / Torch cache 通常在家目錄；
+若家目錄配額小，可在執行前改放到有空間的工作磁碟，例如：
 
-Joint fitting uses normalized mask, tracking, depth, RGB and temporal losses,
-6D rotations, local translations, and transformation bounds. Three phases fit
-root motion, geometry cues, then all losses. Joint checkpoints and loss histories
-are saved between phases. Depth inference uses individual frames and exact
-VGGT padding inversion; this is a reproduction choice for moving foregrounds.
+```bash
+export HF_HOME="$PWD/.cache/huggingface"
+export TORCH_HOME="$PWD/.cache/torch"
+```
 
-FEM uses fixed-corotated elasticity, backward Euler, Newton/CG with line search,
-and joint-driven boundary conditions. Material optimization updates log Young's
-modulus in joint clusters, then spatially splits each cluster. Warp evaluates
-the energy; PyTorch supplies the mathematically identical analytic derivatives
-and matrix-free Hessian-vector products. An implicit adjoint differentiates
-converged simulation states without retaining Newton iterations. Set
-`physics.backend: torch` for the pure PyTorch reference backend.
+這兩個變數也需要在重新登入後重新設定。
+一般公開下載不需要 token；若 Hugging Face 回傳存取限制，
+請依相應模型頁完成帳號／授權設定。
 
-The elastic energy, tangent, material gradient, rest state, synthetic motion
-recovery and synthetic material fitting have automated numerical tests. No
-gravity or collision/contact is modeled, following the paper's supplementary
-internal-elastic-response setup. Large-deformation convergence and arbitrary
-asset tetrahedralization remain benchmark-dependent.
+## 7. 改用 Wan，或切回 LTX
 
-The paper does not disclose most hyperparameters. Defaults in this code
-(loss weights 1, Adam 1e-3, 25 sampled frames, Poisson ratio 0.45, density 1,
-four substeps) are reproduction settings. Meshes are normalized by bounding-box
-diagonal, so material units are normalized too. The present implementation
-fixes Poisson ratio at 0.45.
+Wan 的安裝與權重保留為獨立路徑：
 
-Outputs include joint/material NPZ checkpoints, trajectories, JSON/CSV losses, skeletal
-GLB, and input-view/±45-degree MP4 previews. The skeletal GLB contains joint
-motion; FEM surface deformation is preserved separately in NPZ. Textures are
-sampled to vertex colors for the optimization/render/export path. The pipeline
-currently fits the original surface and uses a decimated proxy only for
-tetrahedralization. This differs from a full textured proxy-transfer pipeline.
+```bash
+MAX_JOBS=2 python scripts/bootstrap.py --video-backend wan
+huggingface-cli download Wan-AI/Wan2.2-TI2V-5B --local-dir weights/Wan2.2-TI2V-5B
+animimic preflight --config configs/fox.yaml
+animimic run --config configs/fox.yaml
+```
 
-Export also writes `metrics.json` comparing rest, joint and physics outputs
-using silhouette IoU, visible-track pixel error and vertex acceleration.
-These diagnostics are not substitutes for the paper's SSIM/LPIPS/VBench study.
-Tetrahedralization saves volume and embedding quality diagnostics.
+`huggingface-cli` 由此環境的 huggingface-hub 套件提供。
+需要另一個權重／repo 路徑時，可修改 YAML 的 `video.checkpoint`、
+`video.repo`。預設 Wan 是 1280×704、121 幀，使用 model offload 與 CPU T5。
+
+也能用 CLI 切換：
+
+```bash
+animimic run --config configs/fox.yaml --video-backend ltx
+```
+
+切換 backend 時會保留 prompt/seed，重設另一個模型不能沿用的參數。
+要精確控制解析度、幀數、steps，請編輯 YAML。
+完整說明見 [本地影片模型與動物指南](docs/local-video.md)。
+
+## 8. 資產、設定與自己的影片
+
+目前共八個資產：Fox、humanoid、robot，以及馬、狗、鯊魚、海鷗、海龜。
+Fox 是 low-poly debug 模型；新增五個動物的來源、面數、骨架數、
+授權與實際預覽都在 [資產指南](docs/local-video.md)。
+每次只需下載要用的角色，不必下載整套 Objaverse。
+
+例如改跑狗：
+
+```bash
+animimic assets fetch --asset puppy
+animimic run --config configs/puppy-ltx.yaml
+```
+
+自訂 GLB 或重用現成影片，可在複製的 YAML 加上：
+
+```yaml
+asset: my_character
+asset_path: /absolute/path/to/rigged-model.glb
+reference_video: /absolute/path/to/reference.mp4
+video:
+  backend: ltx
+  fps: 24
+  sample_frames: 25
+```
+
+GLB 必須有 mesh、skeleton、inverse bind matrices 與 skinning weights。
+`reference_video` 只跳過生成，後續 supervision / optimization 仍使用 GPU。
+影片與 mesh 應是同一角色、相近起始姿勢與固定視角。
+若要調整自訂模型朝向，可設定 `asset_rotation: [-90, 0, 0]`
+（XYZ 角度）；請先看 preview 確認實際朝向。
+
+## 9. 輸出、快取與重跑
+
+每次 run 的 manifest 在 `runs/<asset>/<run-id>/manifest.json`，
+實際 stage artifacts 在 `.cache/animimic/<stage>/<key>/`。
+manifest 會列出各 stage 的目錄與 SHA-256。
+
+```bash
+animimic inspect runs/horse/你的-run-id
+```
+
+請將上面的 run-id 換成實際目錄名稱。主要輸出：
+
+| artifact | 用途 |
+| --- | --- |
+| `reference.mp4` | 原始 I2V 參考影片 |
+| `supervision.npz` | frames、mask、tracks、confidence、depth |
+| `joint_trajectory.npz` / `joint.glb` | 骨架動畫 |
+| `physics_trajectory.npz` | FEM tet/surface trajectory 與材質參數 |
+| `joint_losses.*` / `physics_losses.*` | JSON / CSV loss history |
+| `joint_0.mp4` / `physics_0.mp4` | 與 reference 並排的 input-view 預覽 |
+| `joint_-45.mp4`、`physics_45.mp4` 等 | novel-view 預覽 |
+| `metrics.json` | mask IoU、tracking error、vertex acceleration |
+
+同設定重跑會檢查 cache；調整 joint/FEM 設定不需要重新生成相同影片。
+若已有前段 cache，可從指定 stage 開始：
+
+```bash
+animimic run --config configs/horse-ltx.yaml --from-stage joints
+```
+
+此指令要求相同設定的前置 cache 存在；若缺少，請先用一般 `run`。
+刻意要重算某個 stage 時才使用 `--force-stage supervision` 或
+`--force-stage video`，因為它會重寫該 stage 的快取檔案。
+
+`Animimic.pdf`、GLB、權重、cache 與 run artifacts 都在 Git ignore 範圍，
+不會隨一般程式 commit 上傳；文件內的小型預覽圖例外。
+
+## 10. 測試與常見問題
+
+在完成對應依賴安裝的環境執行：
+
+```bash
+python -m unittest discover -s tests -v
+python -m pip check
+```
+
+測試包含 FK/LBS、GLB round-trip、真實 PyTorch3D rendering、
+小型隨機 LTX I2V、Warp/PyTorch 能量與梯度比對，以及 synthetic joint/material recovery。
+小型 LTX 測試使用隨機權重，不會下載正式 2B 模型。
+缺少 optional 依賴時部分測試會 skip；不能把 skip 當作完整安裝通過。
+
+| 現象 | 處理方式 |
+| --- | --- |
+| Python 是 3.8 / 找不到可安裝版本 | 回第 3 節，用 Python 3.11 重建新環境 |
+| `animimic: command not found` | 啟用正確環境，從 repo 執行 `python -m pip install -e '.[video]'` |
+| `CUDA unavailable` | 檢查 `nvidia-smi`、排程分配、CUDA_VISIBLE_DEVICES 與 CUDA PyTorch wheel |
+| PyTorch3D 編譯失敗 | 檢查 torch/torchvision、nvcc/toolkit、GCC 相容性；用 MAX_JOBS=1 降低記憶體 |
+| `FloatTetwild_bin` 找不到 | 完成 6.3 並設定 PATH 或 physics.tetwild_executable |
+| GPU OOM | 先用 LTX；降低 video.width/height（32 的倍數）、num_frames（8k+1） |
+| 權重下載空間不足 | 把 HF_HOME / TORCH_HOME 設到有空間的磁碟 |
+| source requirements 衝突 | 記錄錯誤與第三方 Git revisions；不要直接把固定版本全升到最新版 |
+
+## 方法設定
+
+Joint stage 使用 6D rotation、FK/LBS 與 RGB、mask、tracking、normalized depth、
+temporal smoothness、joint regularization losses。
+FEM 使用 fixed-corotated elasticity、backward Euler、Newton/CG、
+joint boundary conditions 與 implicit adjoint；Warp 計算能量，
+PyTorch 提供相同公式的導數與 Hessian-vector products。
+
+論文未公開的超參數採用本專案 defaults：Adam 1e-3、loss weights 1、
+25 個 sampled frames、Poisson ratio 0.45、normalized density 1、四個 substeps。
+材質數值對應 normalized mesh 尺度。無 gravity 或 collision/contact。
+目前將貼圖取樣為 vertex colors；FEM deformation 存 NPZ，
+skeletal GLB 只包含 joint animation。
