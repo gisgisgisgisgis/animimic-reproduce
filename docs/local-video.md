@@ -38,7 +38,7 @@ animimic video --config configs/fox-ltx.yaml --image path/to/canonical.png --out
 
 ## 先檢查有毛色貼圖的新馬與原地動作影片
 
-`configs/horse-textured-ltx.yaml` 使用新的 `horse_textured` 資產：
+`configs/horse-textured-ltx-5s.yaml` 使用新的 `horse_textured` 資產：
 42 個 skin joints、2,914 個三角形、2048×2048 真實毛色貼圖。
 下載來源是 [QtMeshEditor motion corpus](https://huggingface.co/datasets/fernandotonon/QtMeshEditor-motion-corpus)，
 原作者為 [abhayexe](https://sketchfab.com/abhayexe)，授權為 CC BY 4.0。
@@ -47,10 +47,14 @@ animimic video --config configs/fox-ltx.yaml --image path/to/canonical.png --out
 
 輸入圖使用斜側面視角與完整 UV 貼圖，不把 2K 毛色壓成少數頂點顏色。
 此模型的原始材質是 unlit、貼圖含烘焙明暗，因此沿用這個材質設定與 sRGB 輸出。
-原地動作設定讓馬低頭、抬頭、擺一次尾巴，四蹄與軀幹保持原位，鏡頭固定。
+原地動作設定依序讓馬低頭聞地面、抬頭、略微轉頭，搭配耳朵、尾巴與重心變化，
+並原地抬起一隻前蹄再放回。保留局部動作，鏡頭固定，整隻馬維持在同一區域。
 流程以 bind pose 產生 I2V 輸入，動作仍由影片模型生成。
 舊的純色馬 `horse` 與 `horse-idle-ltx.yaml` 保留作除錯。
-生成解析度為 768×448、49 幀、40 steps；比原本 512×288、30 steps 需要更多資源。
+生成解析度為 768×448、121 幀、24 fps、40 steps，約 5.04 秒。
+這是生成更多影格；不是降低 fps 或重複影格來拉長影片。
+121 符合 LTX 的 `8k+1` 限制；比 49 幀需要更多生成時間與顯存。
+原本約兩秒的 `configs/horse-textured-ltx.yaml` 保留，仍可明確指定來比較。
 文字是軟性引導，仍可能生成走動、滑步或外觀改變，需要先看結果。
 
 先確認輸入圖，這一步只做 prepare/render，不生成影片：
@@ -72,7 +76,7 @@ bash scripts/13_review_video.sh
 
 同一個 run 目錄會得到 `canonical.png`、`reference.mp4`、`video-review.jpg`
 （輸入圖加八個抽樣影格）、`video-review.json`（設定與檢查項目）。
-請確認始終只有原本那匹馬、外形與馬鞍穩定、腳留在原地、頭部有指定動作，
+請確認始終只有原本那匹馬、毛色與外形穩定、沒有整隻滑走、頭頸與前蹄有指定動作，
 鏡頭與背景固定。抽幀圖方便比較，但仍需播放影片檢查閃爍與滑步。
 影片若不合格，先改 YAML 的 prompt/negative_prompt 或 seed，再跑 `13`。
 只改 seed/prompt 會沿用渲染；改相機時會重新渲染。舊快取保留。
@@ -80,13 +84,20 @@ bash scripts/13_review_video.sh
 只有影片確認合格後，才執行：
 
 ```bash
-bash scripts/08_run_pipeline.sh configs/horse-textured-ltx.yaml
+bash scripts/08_run_pipeline.sh configs/horse-textured-ltx-5s.yaml
 ```
 
 `13` 與完整流程共用同一份影片快取，不需要新增 `reference_video`，
 也不需要重跑生成。這個流程沒有自動判定影片合格，不會自動接著做最佳化。
 `08` 也支援 `--until-stage render` 或 `--until-stage video`。
 提高解析度或步數可另外實驗，但不能保證解決動物形變或動作不遵從的問題。
+
+設定參考：[AniMimic 官方 demo](https://xpandora.github.io/AnimaMimic/) 的參考片段
+展示原地轉頭、抬腳、擺尾等動作；下載檢查的八個比較用 reference 影片均為
+121 幀，其中六個為 24 fps（約 5.04 秒）、兩個為 30 fps（約 4.03 秒）。
+[LTX 官方 prompt 指南](https://github.com/Lightricks/LTX-Video#-prompt-engineering)
+建議按時間順序描述動作，加入具體動作、場景與鏡頭資訊。
+LTX 官網也展示不同的 2B／13B 版本；本專案目前仍使用原始 2B backend。
 
 完整 pipeline：
 

@@ -45,14 +45,15 @@ bash scripts/13_review_video.sh --render-only
 bash scripts/13_review_video.sh
 # 確認影片合格後才繼續：
 bash scripts/04_build_tetwild.sh
-bash scripts/06_check.sh configs/horse-textured-ltx.yaml
-bash scripts/08_run_pipeline.sh configs/horse-textured-ltx.yaml
+bash scripts/06_check.sh configs/horse-textured-ltx-5s.yaml
+bash scripts/08_run_pipeline.sh configs/horse-textured-ltx-5s.yaml
 ```
 
-`13` 預設使用有 2K 毛色貼圖的新馬（`horse_textured`），輸出位置會印在終端機：
+`13` 預設使用有 2K 毛色貼圖的新馬（`horse_textured`），生成約 5 秒影片
+（121 幀、24 fps），輸出位置會印在終端機：
 `runs/horse_textured/<run-id>/canonical.png`、`reference.mp4` 與 `video-review.jpg`。
-先確認只有一匹馬、腳留在原位、外形和鏡頭穩定，再執行完整流程。
-若影片不合格，修改 `configs/horse-textured-ltx.yaml` 的 prompt 或 seed 後重跑 `13`。
+先確認只有一匹馬、動作確實發生、沒有整隻滑走、外形和鏡頭穩定，再執行完整流程。
+若影片不合格，修改 `configs/horse-textured-ltx-5s.yaml` 的 prompt 或 seed 後重跑 `13`。
 確認後用同一份 YAML 跑 `08`，會共用影片快取，不需重新生成。
 
 舊的 `horse` 是純色材質的帶鞍模型，沒有毛色貼圖細節，保留作流程除錯；
@@ -81,7 +82,7 @@ bash scripts/08_run_pipeline.sh configs/horse-textured-ltx.yaml
 | `10_tests.sh` | offline tests + pip check |
 | `11_preview_asset.sh [角色]` | CPU 多視角資產預覽；預設 horse |
 | `12_install_cuda_toolkit.sh` | 選用；在 .cache/cuda-12.4 安裝 nvcc / CUDA toolkit，不更動 driver |
-| `13_review_video.sh [CONFIG] [--render-only]` | 預設 horse-textured-ltx；先檢查輸入與影片，停止在 render 或 video |
+| `13_review_video.sh [CONFIG] [--render-only]` | 預設 horse-textured-ltx-5s；先檢查輸入與影片，停止在 render 或 video |
 
 每個入口都可用 `--help` 查看參數。例如：
 
