@@ -48,6 +48,22 @@ class FEMTests(unittest.TestCase):
         torch.testing.assert_close(x, self.rest)
         torch.testing.assert_close(v, torch.zeros_like(v))
 
+    def test_solver_progress_preserves_forward_and_adjoint(self):
+        target = self.rest.clone()
+        target[1, 0] = 1.1
+        e = torch.tensor([3.], dtype=torch.float64, requires_grad=True)
+        messages = []
+        actual, _ = matrix_free_step(self.rest, self.tets, self.mass, self.rest,
+            torch.zeros_like(self.rest), e, .1, self.fixed, target, notify=messages.append)
+        gradient = torch.autograd.grad(actual[3, 2], e)[0]
+        reference = self.simulate(e)
+        expected_gradient = torch.autograd.grad(reference[3, 2], e)[0]
+        torch.testing.assert_close(actual, reference)
+        torch.testing.assert_close(gradient, expected_gradient)
+        self.assertTrue(any("Newton" in message and "gradient norm=" in message for message in messages))
+        self.assertTrue(any("CG" in message and "residual=" in message for message in messages))
+        self.assertTrue(any("backward adjoint" in message for message in messages))
+
     def test_initial_rigid_pose_moves_free_nodes_without_inversion(self):
         rotation = torch.tensor([[1., 0, 0], [0, 0, -1.], [0, 1., 0]],
                                 dtype=torch.float64)

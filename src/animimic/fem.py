@@ -88,13 +88,17 @@ def implicit_step(rest, tets, mass, x, velocity, log_e, dt, fixed, targets,
     return result, (result-x)/dt
 
 
-def cg(operator, rhs, tolerance=1e-8, iterations=200):
+def cg(operator, rhs, tolerance=1e-8, iterations=200, notify=None):
     value = torch.zeros_like(rhs)
     residual = rhs.clone()
     direction = residual.clone()
     norm = (residual*residual).sum()
-    for _ in range(iterations):
+    for iteration in range(iterations):
+        if notify and iteration % 10 == 0:
+            notify(f"CG {iteration}/{iterations} | residual={float(norm.sqrt()):.6g}")
         if norm.sqrt() <= tolerance:
+            if notify:
+                notify(f"CG converged at {iteration}/{iterations} | residual={float(norm.sqrt()):.6g}")
             return value
         product = operator(direction)
         denominator = (direction*product).sum()
@@ -111,7 +115,8 @@ def cg(operator, rhs, tolerance=1e-8, iterations=200):
 
 class _ImplicitFEM(torch.autograd.Function):
     @staticmethod
-    def forward(ctx, rest, tets, mass, x, velocity, log_e, fixed, targets, dt):
+    def forward(ctx, rest, tets, mass, x, velocity, log_e, fixed, targets, dt, notify):
+        ctx.notify = notify
         free = (~fixed).nonzero().flatten()
         predicted = x + dt*velocity
         with torch.enable_grad():
@@ -131,9 +136,13 @@ class _ImplicitFEM(torch.autograd.Function):
             if not torch.isfinite(initial).all() or not (volumes(initial, tets)>0).all():
                 raise FEMConvergenceError("FEM prescribed boundary produces an inverted initial guess")
             converged = False
-            for _ in range(50):
+            for newton in range(50):
+                if notify:
+                    notify(f"Newton {newton+1}/50 | evaluating energy and gradient | dt={dt:.6g}")
                 loss = objective(z)
                 grad = torch.autograd.grad(loss, z, create_graph=True)[0]
+                if notify:
+                    notify(f"Newton {newton+1}/50 | gradient norm={float(grad.norm()):.6g}")
                 if grad.norm() < 1e-6:
                     converged = True
                     break
@@ -142,7 +151,10 @@ class _ImplicitFEM(torch.autograd.Function):
                     def multiply(v):
                         return torch.autograd.grad(grad, z, v, retain_graph=True)[0] + damping*v
                     try:
-                        direction = cg(multiply, -grad.detach(), tolerance=1e-7)
+                        def report_cg(message):
+                            notify(f"Newton {newton+1}/50 | damping={damping:.6g} | {message}")
+                        direction = cg(multiply, -grad.detach(), tolerance=1e-7,
+                                       notify=report_cg if notify else None)
                         break
                     except RuntimeError:
                         damping *= 10
@@ -152,7 +164,9 @@ class _ImplicitFEM(torch.autograd.Function):
                 with torch.no_grad():
                     reference = merit(z.detach())
                     slope = (grad.detach()*direction).sum()
-                for _ in range(25):
+                for search in range(25):
+                    if notify:
+                        notify(f"Newton {newton+1}/50 | line search {search+1}/25 | alpha={alpha:.6g}")
                     trial = (z+alpha*direction).detach()
                     value = targets.index_copy(0, free, trial)
                     with torch.no_grad():
@@ -168,6 +182,8 @@ class _ImplicitFEM(torch.autograd.Function):
             if not converged:
                 raise FEMConvergenceError("FEM nonlinear solve did not converge")
             result = targets.index_copy(0, free, z).detach()
+            if notify:
+                notify(f"Newton converged at {newton+1}/50")
         ctx.save_for_backward(rest, tets, mass, x, velocity, log_e, fixed, targets, result)
         ctx.dt = dt
         return result
@@ -189,17 +205,21 @@ class _ImplicitFEM(torch.autograd.Function):
             residual = torch.autograd.grad(energy, z, create_graph=True)[0]
             def multiply(v):
                 return torch.autograd.grad(residual, z, v, retain_graph=True)[0]
-            adjoint = cg(multiply, upstream[free], tolerance=1e-7)
+            notify = ctx.notify
+            if notify:
+                notify("backward | computing implicit adjoint")
+            adjoint = cg(multiply, upstream[free], tolerance=1e-7,
+                         notify=(lambda message: notify(f"backward adjoint | {message}")) if notify else None)
             grads = torch.autograd.grad(residual, (x, velocity, log_e, targets),
                                         -adjoint, allow_unused=True)
         gx, gv, ge, gt = grads
         gt = torch.zeros_like(targets) if gt is None else gt
         gt[fixed] += upstream[fixed]
-        return None, None, None, gx, gv, ge, None, gt, None
+        return None, None, None, gx, gv, ge, None, gt, None, None
 
 
-def matrix_free_step(rest, tets, mass, x, velocity, log_e, dt, fixed, targets):
-    result = _ImplicitFEM.apply(rest, tets, mass, x, velocity, log_e, fixed, targets, dt)
+def matrix_free_step(rest, tets, mass, x, velocity, log_e, dt, fixed, targets, notify=None):
+    result = _ImplicitFEM.apply(rest, tets, mass, x, velocity, log_e, fixed, targets, dt, notify)
     return result, (result-x)/dt
 
 
@@ -207,7 +227,7 @@ def adaptive_step(rest, tets, mass, x, velocity, log_e, dt, fixed, targets,
                   max_halvings=8, notify=None):
     """Retry failed steps by advancing through smaller boundary increments."""
     try:
-        return matrix_free_step(rest, tets, mass, x, velocity, log_e, dt, fixed, targets)
+        return matrix_free_step(rest, tets, mass, x, velocity, log_e, dt, fixed, targets, notify)
     except FEMConvergenceError as error:
         if max_halvings <= 0:
             raise FEMConvergenceError(f"FEM adaptive substeps exhausted: {error}") from error

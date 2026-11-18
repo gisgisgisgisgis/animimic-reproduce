@@ -24,3 +24,13 @@ class ProgressTests(unittest.TestCase):
 
     def test_duration_long_run(self):
         self.assertEqual(duration(3661), "01:01:01")
+
+    def test_initial_pose_message_can_be_immediate(self):
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output), patch(
+                "animimic.progress.time.monotonic", side_effect=[0, 1, 2]):
+            progress = Progress("physics", 100)
+            progress.detail("initial pose solve", force=True)
+            progress.detail("suppressed until interval")
+        self.assertIn("initial pose solve", output.getvalue())
+        self.assertNotIn("suppressed until interval", output.getvalue())

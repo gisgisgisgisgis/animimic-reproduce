@@ -17,9 +17,9 @@ class Progress:
         self.started = self.last_detail = time.monotonic()
         print(f"[{label}] 0/{total} | starting", flush=True)
 
-    def detail(self, message):
+    def detail(self, message, force=False):
         now = time.monotonic()
-        if now - self.last_detail >= 10:
+        if force or now - self.last_detail >= 10:
             print(f"[{self.label}] {self.completed}/{self.total} | {message} "
                   f"| elapsed {duration(now-self.started)}", flush=True)
             self.last_detail = now

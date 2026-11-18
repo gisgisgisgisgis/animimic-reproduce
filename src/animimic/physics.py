@@ -126,9 +126,12 @@ def fit_material(rig, data, joint_world, target, renderer, directory, config, dt
             optimizer.zero_grad()
             substeps = config.get("substeps", 4)
             max_halvings = config.get("max_step_halvings", 8)
+            progress.detail(f"iteration {iteration+1}/{iterations} | initial pose solve", force=True)
+            def initial_report(message):
+                progress.detail(f"initial pose | {message}")
             try:
                 x, velocity = initial_state(rest, tets, mass, log_e[groups], dt/substeps,
-                    fixed, targets[0], max_halvings, progress.detail)
+                    fixed, targets[0], max_halvings, initial_report)
             except FEMConvergenceError as error:
                 raise FEMConvergenceError(f"Initial pose: {error}") from error
             states = [x]
@@ -137,10 +140,13 @@ def fit_material(rig, data, joint_world, target, renderer, directory, config, dt
                 for step in range(substeps):
                     alpha = (step+1)/substeps
                     boundary = targets[frame-1].lerp(targets[frame], alpha)
+                    context = f"frame {frame+1}/{len(targets)} | substep {step+1}/{substeps}"
+                    def report(message, context=context):
+                        progress.detail(f"{context} | {message}")
                     try:
                         x, velocity = adaptive_step(rest, tets, mass, x, velocity,
                             log_e[groups], dt/substeps, fixed, boundary,
-                            max_halvings, progress.detail)
+                            max_halvings, report)
                     except FEMConvergenceError as error:
                         raise FEMConvergenceError(
                             f"Frame {frame+1}/{len(targets)}, substep {step+1}/{substeps}: {error}") from error
