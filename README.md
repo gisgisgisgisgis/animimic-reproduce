@@ -256,7 +256,7 @@ sudo apt install -y git build-essential cmake libgmp-dev ffmpeg
 Conda 使用者也可在自己的環境安裝 CMake/GMP：
 
 ```bash
-conda install -c conda-forge cmake gmp -y
+conda install -c conda-forge 'cmake=3.29.*' gmp -y
 ```
 
 接著確認 CUDA toolkit：
@@ -321,11 +321,14 @@ python -c "from pytorch3d import _C; from sam2.sam2_video_predictor import SAM2V
 在 repo 根目錄執行：
 
 ```bash
-cmake -S third_party/fTetWild -B third_party/fTetWild/build -DCMAKE_BUILD_TYPE=Release
-cmake --build third_party/fTetWild/build --parallel 2
+bash scripts/04_build_tetwild.sh
 export PATH="$PWD/third_party/fTetWild/build:$PATH"
 FloatTetwild_bin --help
 ```
+
+腳本會在 Conda 環境中安裝 CMake 3.29.x，避免新版 CMake 的 CMP0169
+政策與 libigl 使用的 `FetchContent_Populate` 衝突。若使用 Python venv，先執行
+`python -m pip install 'cmake>=3.29,<3.30'`，再跑腳本。
 
 預期最後能列出 fTetWild CLI 的參數。如果 CMake 找不到 GMP，
 請確認已裝 `libgmp-dev`；Conda 環境可嘗試在 configure 指令追加
@@ -360,6 +363,17 @@ preflight 會檢查完整 pipeline 的套件、repo、CUDA 與 fTetWild；
 ```bash
 animimic run --config configs/horse-ltx.yaml
 ```
+
+終端機會列出目前階段、是否使用快取，以及各最佳化階段的迭代進度，例如：
+
+```text
+[stage 4/8 supervision] Cache hit | elapsed 00:00:01
+[stage 5/8 joints] Running
+[joints 1/3 root] 1/100 (1.0%) | loss=0.42 | elapsed 00:00:08 | ETA 00:13:12
+```
+
+ETA 依目前階段已完成的迭代估算，不包含後續階段。較長的迭代會間隔顯示
+正在渲染或模擬的影格；反向傳播期間可能暫時沒有新訊息。
 
 首次執行會依序下載／執行所需權重：
 

@@ -9,6 +9,10 @@ from contextvars import ContextVar
 BACKEND = ContextVar("fem_backend", default="torch")
 
 
+class FEMConvergenceError(RuntimeError):
+    """A time step could not be solved without invalid tetrahedra."""
+
+
 def elastic_energy(x, rest, tets, log_e, poisson=0.45):
     if BACKEND.get() == "warp":
         from .warp_fem import WarpEnergy
@@ -116,6 +120,16 @@ class _ImplicitFEM(torch.autograd.Function):
                 value = targets.index_copy(0, free, z)
                 inertia = (mass[:, None]*(value-predicted).square()).sum()/(2*dt*dt)
                 return inertia + elastic_energy(value, rest, tets, log_e)
+            def merit(z):
+                # Warp uses atomic summation. Near convergence, reduction noise
+                # can exceed the expected Newton decrease. Compare candidates
+                # with the same PyTorch expression used by the derivative bridge.
+                value = targets.index_copy(0, free, z)
+                inertia = (mass[:, None]*(value-predicted).square()).sum()/(2*dt*dt)
+                return inertia + torch_elastic_energy(value, rest, tets, log_e)
+            initial = targets.index_copy(0, free, z.detach())
+            if not torch.isfinite(initial).all() or not (volumes(initial, tets)>0).all():
+                raise FEMConvergenceError("FEM prescribed boundary produces an inverted initial guess")
             converged = False
             for _ in range(50):
                 loss = objective(z)
@@ -135,17 +149,24 @@ class _ImplicitFEM(torch.autograd.Function):
                 else:
                     direction = -grad.detach()/grad.detach().norm().clamp_min(1)
                 alpha = 1.
+                with torch.no_grad():
+                    reference = merit(z.detach())
+                    slope = (grad.detach()*direction).sum()
                 for _ in range(25):
                     trial = (z+alpha*direction).detach()
                     value = targets.index_copy(0, free, trial)
-                    if (volumes(value, tets)>0).all() and objective(trial) < loss:
+                    with torch.no_grad():
+                        acceptable = ((volumes(value, tets)>0).all()
+                                      and merit(trial) <= reference + 1e-4*alpha*slope)
+                    if acceptable:
                         break
                     alpha *= .5
                 else:
-                    raise RuntimeError("FEM line search failed")
+                    raise FEMConvergenceError(
+                        f"FEM line search failed (gradient norm={float(grad.norm()):.6g}, dt={dt:.6g})")
                 z = trial.requires_grad_()
             if not converged:
-                raise RuntimeError("FEM nonlinear solve did not converge")
+                raise FEMConvergenceError("FEM nonlinear solve did not converge")
             result = targets.index_copy(0, free, z).detach()
         ctx.save_for_backward(rest, tets, mass, x, velocity, log_e, fixed, targets, result)
         ctx.dt = dt
@@ -180,3 +201,42 @@ class _ImplicitFEM(torch.autograd.Function):
 def matrix_free_step(rest, tets, mass, x, velocity, log_e, dt, fixed, targets):
     result = _ImplicitFEM.apply(rest, tets, mass, x, velocity, log_e, fixed, targets, dt)
     return result, (result-x)/dt
+
+
+def adaptive_step(rest, tets, mass, x, velocity, log_e, dt, fixed, targets,
+                  max_halvings=8, notify=None):
+    """Retry failed steps by advancing through smaller boundary increments."""
+    try:
+        return matrix_free_step(rest, tets, mass, x, velocity, log_e, dt, fixed, targets)
+    except FEMConvergenceError as error:
+        if max_halvings <= 0:
+            raise FEMConvergenceError(f"FEM adaptive substeps exhausted: {error}") from error
+        reason = str(error)
+    # Leave the exception handler before retrying so failed Newton graphs are
+    # released rather than retained by tracebacks throughout the recursive solve.
+    if notify:
+        notify(f"retrying FEM step with dt={dt/2:.6g} ({reason})")
+    halfway = x.lerp(targets, .5)
+    middle, mid_velocity = adaptive_step(rest, tets, mass, x, velocity, log_e,
+        dt/2, fixed, halfway, max_halvings-1, notify)
+    return adaptive_step(rest, tets, mass, middle, mid_velocity, log_e,
+        dt/2, fixed, targets, max_halvings-1, notify)
+
+
+def initial_state(rest, tets, mass, log_e, dt, fixed, targets,
+                  max_halvings=8, notify=None):
+    """Move the entire volume into the initial pose before prescribing nodes.
+
+    A rigid fit preserves all volumes. The remaining nonrigid boundary motion
+    is applied by the same adaptive solver as subsequent animation frames.
+    """
+    source, destination = rest[fixed], targets[fixed]
+    source_center, target_center = source.mean(0), destination.mean(0)
+    u, _, vh = torch.linalg.svd((source-source_center).T @ (destination-target_center))
+    correction = torch.eye(3, dtype=rest.dtype, device=rest.device)
+    correction[-1, -1] = torch.linalg.det(u @ vh).sign()
+    rotation = u @ correction @ vh
+    posed = (rest-source_center) @ rotation + target_center
+    state, _ = adaptive_step(rest, tets, mass, posed, torch.zeros_like(rest),
+        log_e, dt, fixed, targets, max_halvings, notify)
+    return state, torch.zeros_like(state)

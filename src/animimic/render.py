@@ -28,6 +28,12 @@ class Renderer:
     def mesh(self, vertices, faces, colors):
         from pytorch3d.structures import Meshes
         from pytorch3d.renderer import TexturesVertex
+        # A dense or deformed mesh can concentrate every face in one screen bin.
+        # Reserve for the whole mesh, including near-plane clipping which can
+        # split each triangle into two, for RGB, masks and surface sampling.
+        capacity = max(1, 2 * len(faces))
+        self.rasterizer.raster_settings.max_faces_per_bin = capacity
+        self.mask.rasterizer.raster_settings.max_faces_per_bin = capacity
         return Meshes([vertices], [faces], textures=TexturesVertex(verts_features=colors[None]))
 
     def __call__(self, vertices, faces, colors):

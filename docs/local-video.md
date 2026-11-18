@@ -36,6 +36,36 @@ animimic video --config configs/fox-ltx.yaml --image path/to/canonical.png --out
 同一張圖、prompt、seed、backend 與設定會命中快取；改 output 路徑只複製已有影片。
 不同 backend 的快取分開；沒有刪除或重用別的 backend 的影片。
 
+## 先檢查原地動作影片
+
+`configs/horse-idle-ltx.yaml` 是馬的原地動作設定：四蹄保持原位、軀幹位置與
+方向不變，只做小幅點頭與耳朵動作，鏡頭與背景固定。原本設定仍保留。
+這份設定只調整 prompt，解析度、步數、seed 與原本 LTX 預設相同，方便比較。
+文字是軟性引導，仍可能生成走動、滑步或外觀改變，需要先看結果。
+
+從上一輪 `runs/horse/<run-id>/manifest.json` 的 `stages.render.directory`
+找到 `canonical.png`，用它單獨生成影片：
+
+```bash
+bash scripts/07_generate_video.sh path/to/canonical.png configs/horse-idle-ltx.yaml runs/horse-idle-reference.mp4
+```
+
+先確認馬的外形、四肢、腳的位置和鏡頭穩定，動作有變化但沒有整隻滑動。
+如果不合格，修改 prompt 或 seed 再生成，先不要跑 joint/FEM。
+如果合格，在這份 YAML 最外層加入以下設定，再跑完整流程，便會使用該影片：
+
+```yaml
+reference_video: runs/horse-idle-reference.mp4
+```
+
+```bash
+bash scripts/08_run_pipeline.sh configs/horse-idle-ltx.yaml
+```
+
+不設定 `reference_video` 時，完整流程會自行生成影片；單獨生成與完整流程的
+影片快取目前是不同命名空間，因此先試片後請設定 `reference_video`，避免再次生成。
+提高解析度或步數可另外實驗，但不能保證解決動物形變或動作不遵從的問題。
+
 完整 pipeline：
 
 ```bash

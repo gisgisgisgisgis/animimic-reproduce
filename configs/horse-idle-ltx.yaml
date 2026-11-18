@@ -1,0 +1,26 @@
+asset: horse
+video:
+  backend: ltx
+  prompt: >-
+    A single horse stands in the same spot throughout the entire shot.
+    Its four hooves stay planted at their original positions, and its torso
+    stays centered with the same orientation. The horse makes one slow,
+    small head nod and returns its head to the starting pose. Its ears
+    twitch slightly. The same horse, saddle, proportions, colors and
+    surface appearance from the input image remain consistent in every frame.
+    A locked-off camera shows the entire horse, including all four hooves,
+    at a constant distance and scale. The plain background and lighting
+    remain unchanged. The motion is gentle and continuous in one unbroken shot.
+  negative_prompt: >-
+    walking, running, trotting, galloping, stepping, sliding hooves,
+    drifting body, turning body, camera movement, pan, zoom, orbit,
+    camera cuts, cropped hooves, extra legs, missing legs, distorted anatomy,
+    changing saddle, changing appearance, changing background, flicker
+  seed: 2026
+  width: 512
+  height: 288
+  num_inference_steps: 30
+  guidance_scale: 3.0
+  num_frames: 49
+  sample_frames: 25
+  fps: 24

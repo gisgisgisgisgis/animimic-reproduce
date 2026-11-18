@@ -12,6 +12,42 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class ShellEntrypointTests(unittest.TestCase):
+    def test_tetwild_installs_compatible_cmake_and_builds(self):
+        with tempfile.TemporaryDirectory(prefix="animimic tetwild ") as temporary:
+            root = Path(temporary)
+            scripts = root/"scripts"
+            scripts.mkdir()
+            for name in ("_common.sh", "04_build_tetwild.sh"):
+                shutil.copy2(ROOT/"scripts"/name, scripts/name)
+            source = root/"third_party/fTetWild"
+            source.mkdir(parents=True)
+            (source/"CMakeLists.txt").touch()
+            prefix = root/"test env"
+            binaries = prefix/"bin"
+            binaries.mkdir(parents=True)
+            (prefix/"conda-meta").mkdir()
+            log = root/"commands.jsonl"
+            for name in ("python", "conda", "cmake", "FloatTetwild_bin"):
+                executable = binaries/name
+                executable.write_text(
+                    f"#!{sys.executable}\n"
+                    "import json, pathlib, sys\n"
+                    f"with open({str(log)!r}, 'a') as stream:\n"
+                    "    stream.write(json.dumps([pathlib.Path(sys.argv[0]).name, *sys.argv[1:]]) + '\\n')\n"
+                    "if sys.argv[1:] == ['--version']:\n"
+                    "    print('cmake version 3.29.9')\n"
+                )
+                executable.chmod(0o755)
+            subprocess.run(["bash", str(scripts/"04_build_tetwild.sh")],
+                           env={**os.environ, "ANIMIMIC_ENV_DIR": str(prefix)},
+                           capture_output=True, text=True, check=True)
+            commands = [json.loads(line) for line in log.read_text().splitlines()]
+            self.assertIn(["conda", "install", "--prefix", str(prefix), "-c",
+                           "conda-forge", "cmake=3.29.*", "ninja", "gmp", "-y"], commands)
+            self.assertTrue(any(command[:2] == ["cmake", "-S"] for command in commands))
+            self.assertTrue(any(command[:2] == ["cmake", "--build"] for command in commands))
+            self.assertIn(["FloatTetwild_bin", "--help"], commands)
+
     def test_cuda_installer_passes_valid_conda_arguments(self):
         with tempfile.TemporaryDirectory(prefix="animimic toolkit ") as temporary:
             root = Path(temporary)

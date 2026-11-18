@@ -2,7 +2,8 @@ import unittest
 
 import torch
 
-from animimic.fem import elastic_energy, matrix_free_step, volumes
+from animimic.fem import (elastic_energy, matrix_free_step, volumes,
+                         initial_state, adaptive_step, FEMConvergenceError)
 
 
 class FEMTests(unittest.TestCase):
@@ -46,6 +47,38 @@ class FEMTests(unittest.TestCase):
             .1, self.fixed, self.rest)
         torch.testing.assert_close(x, self.rest)
         torch.testing.assert_close(v, torch.zeros_like(v))
+
+    def test_initial_rigid_pose_moves_free_nodes_without_inversion(self):
+        rotation = torch.tensor([[1., 0, 0], [0, 0, -1.], [0, 1., 0]],
+                                dtype=torch.float64)
+        target = self.rest @ rotation + torch.tensor([2., -1., 3.])
+        e = torch.tensor([8.], dtype=torch.float64, requires_grad=True)
+        x, velocity = initial_state(self.rest, self.tets, self.mass, e, .1,
+                                    self.fixed, target)
+        torch.testing.assert_close(x, target)
+        torch.testing.assert_close(velocity, torch.zeros_like(velocity))
+        self.assertGreater(float(volumes(x, self.tets).min()), 0)
+
+    def test_adaptive_boundary_motion_preserves_volume_and_material_gradient(self):
+        target = self.rest + torch.tensor([0., 0, 1.2])
+        mass = self.mass * .001
+        e = torch.tensor([8.], dtype=torch.float64, requires_grad=True)
+        with self.assertRaises(FEMConvergenceError):
+            matrix_free_step(self.rest, self.tets, mass, self.rest,
+                             torch.zeros_like(self.rest), e, .1, self.fixed, target)
+        def simulate(parameter, halvings=8):
+            return adaptive_step(self.rest, self.tets, mass, self.rest,
+                torch.zeros_like(self.rest), parameter, .1, self.fixed, target,
+                max_halvings=halvings)[0]
+        x = simulate(e)
+        torch.testing.assert_close(x[self.fixed], target[self.fixed])
+        self.assertGreater(float(volumes(x, self.tets).min()), 0)
+        gradient = torch.autograd.grad(x[3, 2], e)[0]
+        numerical = (simulate(e.detach()+1e-3)[3, 2]
+                     - simulate(e.detach()-1e-3)[3, 2])/2e-3
+        torch.testing.assert_close(gradient[0], numerical, rtol=1e-2, atol=1e-9)
+        with self.assertRaisesRegex(FEMConvergenceError, "adaptive substeps exhausted"):
+            simulate(e, halvings=0)
 
     def test_multistep_adjoint_matches_finite_difference(self):
         def simulate(e):

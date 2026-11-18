@@ -1,11 +1,13 @@
 """Resumable stage orchestration with independent upstream cache keys."""
 import json
 import subprocess
+import time
 from pathlib import Path
 
 import numpy as np
 
 from .core import Cache, digest, file_hash, save_json
+from .progress import duration
 
 
 STAGES = ("prepare", "render", "video", "supervision", "joints",
@@ -21,6 +23,7 @@ def repo_revision(path):
 
 
 def run(config, force_stage=None, from_stage=None):
+    print("[pipeline] Loading dependencies...", flush=True)
     import torch
     from PIL import Image
     from .cli import fetch_asset
@@ -49,6 +52,15 @@ def run(config, force_stage=None, from_stage=None):
     # Each stage includes only its own settings and ancestors, so optimizer changes
     # do not invalidate a saved reference video.
     def stage(name, settings, upstream, producer, modules):
+        label = f"stage {STAGES.index(name)+1}/{len(STAGES)} {name}"
+        print(f"[{label}] Checking cache...", flush=True)
+        started = time.monotonic()
+        produced = False
+        def produce(out):
+            nonlocal produced
+            produced = True
+            print(f"[{label}] Running", flush=True)
+            return producer(out)
         key_inputs = {"settings": settings, "upstream": upstream,
                       "code": {m: file_hash(source/m) for m in modules}}
         must_exist = from_stage and STAGES.index(name) < STAGES.index(from_stage)
@@ -58,11 +70,13 @@ def run(config, force_stage=None, from_stage=None):
         manifest["stages"][name] = {"status": "running"}
         save_json(run_dir/"manifest.json", manifest)
         try:
-            directory = cache.run(name, key_inputs, producer, name == force_stage)
+            directory = cache.run(name, key_inputs, produce, name == force_stage)
         except Exception as exc:
             manifest["stages"][name] = {"status": "failed", "error": str(exc)}
             save_json(run_dir/"manifest.json", manifest)
             raise
+        print(f"[{label}] {'Complete' if produced else 'Cache hit'} "
+              f"| elapsed {duration(time.monotonic()-started)}", flush=True)
         directories[name] = directory
         record = json.loads((directory/"stage.json").read_text())
         manifest["stages"][name] = {"status": "complete", "directory": str(directory),
@@ -114,11 +128,14 @@ def run(config, force_stage=None, from_stage=None):
         frames, indices = sample_video(generated/"reference.mp4", out/"frames",
             video_config.get("sample_frames", 25), renderer.size[::-1])
         settings = config.get("supervision", {})
+        print(f"[supervision] SAM2 masks | {len(frames)} frames", flush=True)
         masks = segment_frames(out/"frames", np.load(rendered/"mask.npy")>.5, settings)
         with torch.no_grad():
             tri, beta, pixels = renderer.surface_samples(
                 rig["vertices"], rig["faces"], rig["colors"], settings.get("max_tracks", 512))
+        print("[supervision] AllTracker tracks", flush=True)
         tracks, visibility, confidence = track_frames(frames, pixels, settings)
+        print("[supervision] VGGT depth", flush=True)
         depth_maps = estimate_depth(out/"frames", settings)
         xy = np.rint(tracks).astype(int)
         h, w = renderer.size

@@ -5,9 +5,13 @@ require_env
 [[ -f third_party/fTetWild/CMakeLists.txt ]] || die "Run 03_install_pipeline.sh first."
 if [[ -d "$ANIMIMIC_ENV_DIR/conda-meta" ]]; then
     conda_bin="$(find_conda)" || die "Conda executable not found."
-    "$conda_bin" install --prefix "$ANIMIMIC_ENV_DIR" -c conda-forge cmake ninja gmp -y
+    # libigl's dependency recipes use FetchContent_Populate(name), which newer
+    # CMake policies reject. Keep the build tool on the compatible 3.29 series.
+    "$conda_bin" install --prefix "$ANIMIMIC_ENV_DIR" -c conda-forge 'cmake=3.29.*' ninja gmp -y
 fi
 command -v cmake >/dev/null || die "Install CMake; on Ubuntu: sudo apt install cmake libgmp-dev build-essential."
+cmake_version="$(cmake --version | head -n 1)"
+[[ "$cmake_version" == 'cmake version 3.29.'* ]] || die "fTetWild requires CMake 3.29.x. Install it with: python -m pip install 'cmake>=3.29,<3.30'"
 cmake -S third_party/fTetWild -B third_party/fTetWild/build -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$ANIMIMIC_ENV_DIR"
 cmake --build third_party/fTetWild/build --parallel "${MAX_JOBS:-2}"
 FloatTetwild_bin --help

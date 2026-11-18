@@ -6,8 +6,9 @@ import numpy as np
 import torch
 
 from .core import save_history, save_json
-from .fem import matrix_free_step, volumes, BACKEND
+from .fem import adaptive_step, initial_state, FEMConvergenceError, volumes, BACKEND
 from .optimize import video_loss
+from .progress import Progress
 
 
 def tetrahedralize(rig, directory, config):
@@ -120,31 +121,44 @@ def fit_material(rig, data, joint_world, target, renderer, directory, config, dt
                                  device=device, dtype=dtype)
         log_e = initial.clone().requires_grad_()
         optimizer = torch.optim.Adam([log_e], lr=config.get("learning_rate", 1e-3))
+        progress = Progress(f"physics {level+1}/2 {'fine' if level else 'coarse'}", iterations)
         for iteration in range(iterations):
             optimizer.zero_grad()
-            x = torch.where(fixed[:, None], targets[0], rest)
-            velocity = torch.zeros_like(x)
-            states = [x]
             substeps = config.get("substeps", 4)
+            max_halvings = config.get("max_step_halvings", 8)
+            try:
+                x, velocity = initial_state(rest, tets, mass, log_e[groups], dt/substeps,
+                    fixed, targets[0], max_halvings, progress.detail)
+            except FEMConvergenceError as error:
+                raise FEMConvergenceError(f"Initial pose: {error}") from error
+            states = [x]
             for frame in range(1, len(targets)):
+                progress.detail(f"FEM simulation frame {frame+1}/{len(targets)}")
                 for step in range(substeps):
                     alpha = (step+1)/substeps
                     boundary = targets[frame-1].lerp(targets[frame], alpha)
-                    x, velocity = matrix_free_step(rest, tets, mass, x, velocity,
-                        log_e[groups], dt/substeps, fixed, boundary)
+                    try:
+                        x, velocity = adaptive_step(rest, tets, mass, x, velocity,
+                            log_e[groups], dt/substeps, fixed, boundary,
+                            max_halvings, progress.detail)
+                    except FEMConvergenceError as error:
+                        raise FEMConvergenceError(
+                            f"Frame {frame+1}/{len(targets)}, substep {step+1}/{substeps}: {error}") from error
                 states.append(x)
             trajectory = torch.stack(states)
             trajectory_log_e = log_e.detach().clone()
             surface = (trajectory[:, embedding]*bary[None, ..., None]).sum(-2).float()
-            losses = video_loss(surface, rig, target, renderer)
+            losses = video_loss(surface, rig, target, renderer, progress=progress)
             loss = sum(losses.values())
             if not torch.isfinite(loss):
                 raise RuntimeError("Nonfinite material objective")
+            progress.detail("backward pass")
             loss.backward()
             torch.nn.utils.clip_grad_norm_([log_e], 1., error_if_nonfinite=True)
             optimizer.step()
             history.append({"level": level, "iteration": iteration,
                             "loss": float(loss.detach())})
+            progress.advance(history[-1]["loss"])
             save_history(directory/"physics_losses.json", history)
         np.savez_compressed(directory/"material_checkpoint.npz",
                             log_e=trajectory_log_e.cpu(), groups=groups.cpu())

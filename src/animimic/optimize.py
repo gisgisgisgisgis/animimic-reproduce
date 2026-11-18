@@ -6,6 +6,7 @@ from .core import save_history
 from .losses import normalize_depth, silhouette, smoothness, weighted_huber, masked_rgb
 from .rig import fk, lbs, pose_local
 from .rig import rotation_6d
+from .progress import Progress
 
 
 def tensors(rig, device):
@@ -14,7 +15,7 @@ def tensors(rig, device):
             for k, v in rig.items()}
 
 
-def video_loss(vertices, rig, target, renderer, phase="full"):
+def video_loss(vertices, rig, target, renderer, phase="full", progress=None):
     frames, masks = target["frames"], target["masks"]
     tri, beta = target["triangles"], target["barycentric"]
     points = (vertices[:, rig["faces"][tri]] * beta[None, :, :, None]).sum(-2)
@@ -27,7 +28,9 @@ def video_loss(vertices, rig, target, renderer, phase="full"):
     depth = weighted_huber(normalize_depth(depths, valid),
                            normalize_depth(target["depth"], valid), weight)
     rgb, mask = [], []
-    for value in vertices:
+    for frame, value in enumerate(vertices, 1):
+        if progress:
+            progress.detail(f"rendering frame {frame}/{len(vertices)}")
         image, alpha = renderer(value, rig["faces"], rig["colors"])
         rgb.append(image)
         mask.append(alpha)
@@ -56,13 +59,14 @@ def fit_joints(rig, supervision, renderer, output, config):
     roots = rig["parents"] < 0
     lengths = rig["local"][:, :3, 3].norm(dim=-1).clamp_min(1e-4)
     translation_bound = lengths*config.get("max_translation_bone_fraction", .1)
-    for phase, iterations in phases:
+    for phase_index, (phase, iterations) in enumerate(phases, 1):
+        progress = Progress(f"joints {phase_index}/3 {phase}", iterations)
         for iteration in range(iterations):
             optimizer.zero_grad()
             local = pose_local(rig["local"], rotation, translation)
             world = fk(local, parents)
             vertices = lbs(rig["vertices"], rig["weights"], world, rig["inverse_bind"])
-            losses = video_loss(vertices, rig, supervision, renderer, phase)
+            losses = video_loss(vertices, rig, supervision, renderer, phase, progress)
             losses["regularization"] = (
                 (translation[:, ~roots].abs()-translation_bound[None, ~roots, None]).clamp_min(0).square().mean()
                 if (~roots).any() else translation.sum()*0)
@@ -76,6 +80,7 @@ def fit_joints(rig, supervision, renderer, output, config):
             loss = sum(weights.get(k, 1)*v for k, v in losses.items())
             if not torch.isfinite(loss):
                 raise RuntimeError("Nonfinite joint objective")
+            progress.detail("backward pass")
             loss.backward()
             if phase == "root":
                 rotation.grad[:, ~roots] = 0
@@ -84,6 +89,7 @@ def fit_joints(rig, supervision, renderer, output, config):
             optimizer.step()
             history.append({"phase": phase, "iteration": iteration,
                             **{k: float(v.detach()) for k, v in losses.items()}})
+            progress.advance(float(loss.detach()))
         save_history(output/"joint_losses.json", history)
         np.savez_compressed(output/"joint_checkpoint.npz",
                             rotation=rotation.detach().cpu(), translation=translation.detach().cpu())
