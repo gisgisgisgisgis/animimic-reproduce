@@ -1,0 +1,29 @@
+asset: horse_textured
+camera:
+  width: 768
+  height: 448
+  azimuth: 65
+  elevation: 5
+  distance: 1.5
+  lighting: unlit
+  srgb: true
+  use_texture: true
+video:
+  backend: ltx
+  prompt: The brown horse bends its legs and lies down on its side on the ground,
+    then rolls over onto its back with all four legs kicking up in the air, its back
+    rubbing against the ground. The same horse keeps consistent coat markings and
+    proportions. The camera and plain background stay fixed throughout this continuous
+    five-second shot.
+  negative_prompt: second horse, duplicate animal, animal entering the frame, camera
+    movement, camera shake, pan, zoom, orbit, camera cuts, frozen pose, still image,
+    missing legs, extra legs, distorted anatomy, melting body, changing markings,
+    changing background, flicker
+  seed: 2026
+  width: 768
+  height: 448
+  num_inference_steps: 40
+  guidance_scale: 3.0
+  num_frames: 121
+  sample_frames: 25
+  fps: 24

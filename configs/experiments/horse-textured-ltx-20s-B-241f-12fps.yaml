@@ -1,0 +1,32 @@
+asset: horse_textured
+camera:
+  width: 768
+  height: 448
+  azimuth: 65
+  elevation: 5
+  distance: 1.5
+  lighting: unlit
+  srgb: true
+  use_texture: true
+video:
+  backend: ltx
+  prompt: The brown horse stands in place and slowly lowers its head to sniff the
+    ground, then lifts its head back up. It flicks its ears and swishes its tail.
+    It turns its head slightly toward the viewer, then looks forward again. It shifts
+    its weight and briefly lifts one front hoof, then places it back on the same spot.
+    It lowers its head once more to graze, then raises it and stands calmly. The same
+    horse remains centered and fully visible with consistent coat markings and proportions.
+    The camera and plain background stay fixed throughout this continuous twenty-second
+    shot.
+  negative_prompt: second horse, duplicate animal, animal entering the frame, walking
+    away, running forward, travelling, sliding hooves, drifting body, camera movement,
+    camera shake, pan, zoom, orbit, camera cuts, frozen pose, still image, missing
+    legs, extra legs, distorted anatomy, changing markings, changing background, flicker
+  seed: 2026
+  width: 768
+  height: 448
+  num_inference_steps: 40
+  guidance_scale: 3.0
+  num_frames: 241
+  sample_frames: 25
+  fps: 12
