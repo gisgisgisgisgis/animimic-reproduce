@@ -12,7 +12,8 @@ if [[ -d "$prefix/conda-meta" ]]; then
 else
     action=create
 fi
-"$conda_bin" "$action" --prefix "$prefix" --override-channels +    -c nvidia/label/cuda-12.4.1 -c conda-forge 'cuda-toolkit=12.4.1' -y
+"$conda_bin" "$action" --prefix "$prefix" --override-channels \
+    -c nvidia/label/cuda-12.4.1 -c conda-forge 'cuda-toolkit=12.4.1' -y
 export CUDA_HOME="$prefix"
 export PATH="$CUDA_HOME/bin:$PATH"
 use_cuda_toolkit

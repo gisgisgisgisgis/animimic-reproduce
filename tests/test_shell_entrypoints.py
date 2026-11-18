@@ -2,6 +2,7 @@
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -11,6 +12,39 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class ShellEntrypointTests(unittest.TestCase):
+    def test_cuda_installer_passes_valid_conda_arguments(self):
+        with tempfile.TemporaryDirectory(prefix="animimic toolkit ") as temporary:
+            root = Path(temporary)
+            scripts = root/"scripts"
+            scripts.mkdir()
+            for name in ("_common.sh", "12_install_cuda_toolkit.sh"):
+                shutil.copy2(ROOT/"scripts"/name, scripts/name)
+            binaries = root/"bin"
+            binaries.mkdir()
+            conda = binaries/"conda"
+            conda.write_text(
+                f"#!{sys.executable}\n"
+                "import json, pathlib, sys\n"
+                "args = sys.argv[1:]\n"
+                "print(json.dumps(args))\n"
+                "prefix = pathlib.Path(args[args.index('--prefix') + 1])\n"
+                "(prefix/'conda-meta').mkdir(parents=True, exist_ok=True)\n"
+                "(prefix/'bin').mkdir(exist_ok=True)\n"
+                "nvcc = prefix/'bin/nvcc'\n"
+                "nvcc.write_text(\"#!/bin/sh\\nprintf 'release 12.4\\\\n'\\n\")\n"
+                "nvcc.chmod(0o755)\n"
+            )
+            conda.chmod(0o755)
+            for action in ("create", "install"):
+                result = subprocess.run(
+                    ["bash", str(scripts/"12_install_cuda_toolkit.sh")],
+                    env={**os.environ, "PATH": f"{binaries}:{os.environ['PATH']}"},
+                    capture_output=True, text=True, check=True)
+                self.assertEqual(json.loads(result.stdout.splitlines()[0]), [
+                    action, "--prefix", str(root/".cache/cuda-12.4"),
+                    "--override-channels", "-c", "nvidia/label/cuda-12.4.1",
+                    "-c", "conda-forge", "cuda-toolkit=12.4.1", "-y"])
+
     def test_cuda_home_is_discovered_and_added_to_path(self):
         with tempfile.TemporaryDirectory(prefix="animimic cuda ") as temporary:
             prefix = Path(temporary)
