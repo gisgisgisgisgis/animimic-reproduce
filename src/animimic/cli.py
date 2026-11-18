@@ -38,9 +38,28 @@ def fetch_asset(name, root):
     path = directory/"model.glb"
     if not path.exists():
         temporary = path.with_suffix(".partial")
-        request = urllib.request.Request(url, headers={"User-Agent": "animimic-reproduce/0.1"})
-        with urllib.request.urlopen(request, timeout=120) as response, temporary.open("wb") as out:
-            shutil.copyfileobj(response, out)
+        spec = ANIMAL_ASSETS.get(name, {})
+        if spec.get("format") == "gltf":
+            from .gltf_pack import pack_gltf
+            for member in spec["files"]:
+                relative = Path(member["path"])
+                if relative.is_absolute() or ".." in relative.parts:
+                    raise ValueError("Asset member must be a relative path")
+                destination = directory/"source"/relative
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                if not destination.exists() or file_hash(destination) != member["sha256"]:
+                    partial = destination.with_suffix(destination.suffix+".partial")
+                    request = urllib.request.Request(member["url"], headers={"User-Agent": "animimic-reproduce/0.1"})
+                    with urllib.request.urlopen(request, timeout=120) as response, partial.open("wb") as out:
+                        shutil.copyfileobj(response, out)
+                    if file_hash(partial) != member["sha256"]:
+                        raise ValueError(f"{name}: source checksum mismatch: {relative}")
+                    partial.replace(destination)
+            pack_gltf(directory/"source"/spec["entrypoint"], temporary)
+        else:
+            request = urllib.request.Request(url, headers={"User-Agent": "animimic-reproduce/0.1"})
+            with urllib.request.urlopen(request, timeout=120) as response, temporary.open("wb") as out:
+                shutil.copyfileobj(response, out)
         inspect_skin(temporary)
         if file_hash(temporary) != ASSET_HASHES[name]:
             raise ValueError(f"{name}: upstream asset changed; review its checksum before use")
@@ -95,7 +114,8 @@ def main():
             parser.error("assets fetch/preview requires --asset")
         elif args.action == "preview":
             from .asset_preview import preview_asset
-            print(preview_asset(fetch_asset(args.asset, args.root), args.output, args.asset))
+            print(preview_asset(fetch_asset(args.asset, args.root), args.output, args.asset,
+                                camera=ANIMAL_ASSETS.get(args.asset, {}).get("preview_camera")))
         else:
             print(fetch_asset(args.asset, args.root))
     elif args.command == "inspect":

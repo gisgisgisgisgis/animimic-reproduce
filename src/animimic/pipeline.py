@@ -32,7 +32,7 @@ def run(config, force_stage=None, from_stage=None, until_stage=None):
     import torch
     from PIL import Image
     from .cli import fetch_asset
-    from .glb import load_rig, rotate_rig
+    from .glb import load_rig, rotate_rig, load_uv_material
     from .models import sample_video, segment_frames, track_frames, estimate_depth
     from .video_backends import generate_video, backend_name
     from .optimize import tensors, fit_joints
@@ -90,16 +90,21 @@ def run(config, force_stage=None, from_stage=None, until_stage=None):
 
     def prepare(out):
         data = load_rig(asset)
+        if config.get("camera", {}).get("use_texture"):
+            data.update(load_uv_material(asset))
         if config.get("asset_rotation"):
             data = rotate_rig(data, config["asset_rotation"])
         np.savez_compressed(out/"rig.npz", **data)
         return ["rig.npz"]
     settings = {"rotation": config["asset_rotation"]} if config.get("asset_rotation") else {}
+    if config.get("camera", {}).get("use_texture"):
+        settings["uv_material"] = True
     prepared = stage("prepare", settings, {"asset": file_hash(asset)}, prepare, ["glb.py"])
     raw = dict(np.load(prepared/"rig.npz"))
     rig = tensors(raw, device)
     camera = config.get("camera", {})
     renderer = Renderer(device, **camera)
+    renderer.bind_material(rig)
     def render(out):
         with torch.no_grad():
             image, mask = renderer(rig["vertices"], rig["faces"], rig["colors"])

@@ -39,21 +39,25 @@ bash scripts/07_generate_video.sh inputs/reference.png configs/fox-ltx.yaml runs
 # 若主機找不到 nvcc，先安裝使用者目錄內的 toolkit：
 bash scripts/12_install_cuda_toolkit.sh
 bash scripts/03_install_pipeline.sh ltx
-bash scripts/05_fetch_assets.sh horse
+bash scripts/05_fetch_assets.sh horse_textured
 # 先看輸入圖，再只生成影片；不會接著跑 joint/FEM：
 bash scripts/13_review_video.sh --render-only
 bash scripts/13_review_video.sh
 # 確認影片合格後才繼續：
 bash scripts/04_build_tetwild.sh
-bash scripts/06_check.sh configs/horse-idle-ltx.yaml
-bash scripts/08_run_pipeline.sh configs/horse-idle-ltx.yaml
+bash scripts/06_check.sh configs/horse-textured-ltx.yaml
+bash scripts/08_run_pipeline.sh configs/horse-textured-ltx.yaml
 ```
 
-`13` 預設使用馬的原地動作設定，輸出位置會印在終端機：
-`runs/horse/<run-id>/canonical.png`、`reference.mp4` 與 `video-review.jpg`。
+`13` 預設使用有 2K 毛色貼圖的新馬（`horse_textured`），輸出位置會印在終端機：
+`runs/horse_textured/<run-id>/canonical.png`、`reference.mp4` 與 `video-review.jpg`。
 先確認只有一匹馬、腳留在原位、外形和鏡頭穩定，再執行完整流程。
-若影片不合格，修改 `configs/horse-idle-ltx.yaml` 的 prompt 或 seed 後重跑 `13`。
+若影片不合格，修改 `configs/horse-textured-ltx.yaml` 的 prompt 或 seed 後重跑 `13`。
 確認後用同一份 YAML 跑 `08`，會共用影片快取，不需重新生成。
+
+舊的 `horse` 是純色材質的帶鞍模型，沒有毛色貼圖細節，保留作流程除錯；
+不能將其色塊外觀視為寫實動物輸入。影片即使外形穩定，若只有運鏡、
+沒有指定的局部動作，也不合格，應停在影片檢查階段。
 
 不要在前一個步驟失敗時直接繼續下一個。腳本不會使用 sudo 安裝系統驅動，
 完整 pipeline 仍需主機提供相容的 CUDA compiler／C++ compiler。
@@ -77,7 +81,7 @@ bash scripts/08_run_pipeline.sh configs/horse-idle-ltx.yaml
 | `10_tests.sh` | offline tests + pip check |
 | `11_preview_asset.sh [角色]` | CPU 多視角資產預覽；預設 horse |
 | `12_install_cuda_toolkit.sh` | 選用；在 .cache/cuda-12.4 安裝 nvcc / CUDA toolkit，不更動 driver |
-| `13_review_video.sh [CONFIG] [--render-only]` | 預設 horse-idle-ltx；先檢查輸入與影片，停止在 render 或 video |
+| `13_review_video.sh [CONFIG] [--render-only]` | 預設 horse-textured-ltx；先檢查輸入與影片，停止在 render 或 video |
 
 每個入口都可用 `--help` 查看參數。例如：
 
@@ -437,8 +441,8 @@ animimic run --config configs/fox.yaml --video-backend ltx
 
 ## 8. 資產、設定與自己的影片
 
-目前共八個資產：Fox、humanoid、robot，以及馬、狗、鯊魚、海鷗、海龜。
-Fox 是 low-poly debug 模型；新增五個動物的來源、面數、骨架數、
+目前共九個資產：Fox、humanoid、robot、兩個馬模型，以及狗、鯊魚、海鷗、海龜。
+Fox 與舊馬保留作外觀除錯；動物的來源、面數、骨架數、
 授權與實際預覽都在 [資產指南](docs/local-video.md)。
 每次只需下載要用的角色，不必下載整套 Objaverse。
 
@@ -540,5 +544,6 @@ PyTorch 提供相同公式的導數與 Hessian-vector products。
 論文未公開的超參數採用本專案 defaults：Adam 1e-3、loss weights 1、
 25 個 sampled frames、Poisson ratio 0.45、normalized density 1、四個 substeps。
 材質數值對應 normalized mesh 尺度。無 gravity 或 collision/contact。
-目前將貼圖取樣為 vertex colors；FEM deformation 存 NPZ，
+`horse_textured` 的輸入與渲染保留完整 UV 貼圖；其他預設與 skeletal GLB 匯出
+仍使用 vertex colors。FEM deformation 存 NPZ，
 skeletal GLB 只包含 joint animation。

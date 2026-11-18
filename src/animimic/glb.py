@@ -81,6 +81,31 @@ def inspect_skin(path):
             "animations": len(document.get("animations", []))}
 
 
+def load_uv_material(path):
+    """Preserve the full base-color map for a single-primitive textured asset."""
+    from io import BytesIO
+    from PIL import Image
+    document, binary = load_glb(path)
+    primitives = [p for mesh in document["meshes"] for p in mesh["primitives"]]
+    if len(primitives) != 1:
+        raise ValueError("UV rendering currently supports a single mesh primitive")
+    primitive = primitives[0]
+    pbr = document["materials"][primitive.get("material", 0)]["pbrMetallicRoughness"]
+    reference = pbr["baseColorTexture"]
+    uv = accessor(document, binary, primitive["attributes"][f"TEXCOORD_{reference.get('texCoord', 0)}"]).copy()
+    if (uv < 0).any() or (uv > 1).any():
+        raise ValueError("UV rendering currently requires coordinates in [0, 1]")
+    uv[:, 1] = 1-uv[:, 1]  # glTF image origin is at the top; TexturesUV uses bottom.
+    image = document["images"][document["textures"][reference["index"]]["source"]]
+    view = document["bufferViews"][image["bufferView"]]
+    start = view.get("byteOffset", 0)
+    with Image.open(BytesIO(binary[start:start+view["byteLength"]])) as picture:
+        srgb = np.asarray(picture.convert("RGB"), dtype=np.float32)/255
+    linear = np.where(srgb <= .04045, srgb/12.92, ((srgb+.055)/1.055)**2.4)
+    linear *= np.asarray(pbr.get("baseColorFactor", [1, 1, 1, 1])[:3])
+    return {"uv": uv, "texture": linear}
+
+
 def load_rig(path):
     """Bake mesh-node transforms and retain all ancestor nodes in the rig."""
     document, binary = load_glb(path)

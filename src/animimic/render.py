@@ -4,7 +4,8 @@ import torch
 
 class Renderer:
     def __init__(self, device, width=512, height=288, azimuth=0,
-                 distance=2.2, elevation=10, fov=35, lighting="legacy", srgb=False):
+                 distance=2.2, elevation=10, fov=35, lighting="legacy", srgb=False,
+                 use_texture=False):
         from pytorch3d.renderer import (
             FoVPerspectiveCameras, look_at_view_transform, RasterizationSettings,
             MeshRasterizer, MeshRenderer, SoftPhongShader, SoftSilhouetteShader,
@@ -12,8 +13,10 @@ class Renderer:
         )
         self.settings = dict(width=width, height=height, azimuth=azimuth,
                              distance=distance, elevation=elevation, fov=fov,
-                             lighting=lighting, srgb=srgb)
+                             lighting=lighting, srgb=srgb, use_texture=use_texture)
         self.srgb = srgb
+        self.use_texture = use_texture
+        self.material = None
         r, t = look_at_view_transform(distance, elevation, azimuth, device=device)
         self.camera = FoVPerspectiveCameras(device=device, R=r, T=t,
                                            fov=fov, aspect_ratio=1.0)
@@ -25,6 +28,10 @@ class Renderer:
             lights = PointLights(device=device, location=self.camera.get_camera_center(),
                 ambient_color=((.8, .8, .8),), diffuse_color=((.2, .2, .2),),
                 specular_color=((0., 0., 0.),))
+        elif lighting == "unlit":
+            # Some game assets bake lighting into their base-color texture.
+            lights = PointLights(device=device, ambient_color=((1., 1., 1.),),
+                diffuse_color=((0., 0., 0.),), specular_color=((0., 0., 0.),))
         elif lighting == "legacy":
             lights = PointLights(device=device, location=[[0., 2., 3.]])
         else:
@@ -37,6 +44,10 @@ class Renderer:
                 blur_radius=1e-4, faces_per_pixel=10))
         self.mask = MeshRenderer(soft, SoftSilhouetteShader())
 
+    def bind_material(self, rig):
+        if self.use_texture:
+            self.material = (rig["uv"], rig["texture"])
+
     def mesh(self, vertices, faces, colors):
         from pytorch3d.structures import Meshes
         from pytorch3d.renderer import TexturesVertex
@@ -46,7 +57,15 @@ class Renderer:
         capacity = max(1, 2 * len(faces))
         self.rasterizer.raster_settings.max_faces_per_bin = capacity
         self.mask.rasterizer.raster_settings.max_faces_per_bin = capacity
-        return Meshes([vertices], [faces], textures=TexturesVertex(verts_features=colors[None]))
+        if self.use_texture:
+            from pytorch3d.renderer import TexturesUV
+            if self.material is None:
+                raise ValueError("Bind UV material before rendering a textured mesh")
+            uv, texture = self.material
+            appearance = TexturesUV(maps=texture[None], faces_uvs=faces[None], verts_uvs=uv[None])
+        else:
+            appearance = TexturesVertex(verts_features=colors[None])
+        return Meshes([vertices], [faces], textures=appearance)
 
     def __call__(self, vertices, faces, colors):
         mesh = self.mesh(vertices, faces, colors)

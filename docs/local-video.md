@@ -36,11 +36,20 @@ animimic video --config configs/fox-ltx.yaml --image path/to/canonical.png --out
 同一張圖、prompt、seed、backend 與設定會命中快取；改 output 路徑只複製已有影片。
 不同 backend 的快取分開；沒有刪除或重用別的 backend 的影片。
 
-## 先檢查原地動作影片
+## 先檢查有毛色貼圖的新馬與原地動作影片
 
-`configs/horse-idle-ltx.yaml` 是馬的原地動作設定：四蹄保持原位、軀幹位置與
-方向不變，只做一次小幅點頭，鏡頭與背景固定。原本設定仍保留。
-這份設定使用斜側面視角、studio 光照與 sRGB 輸出，改善背面重疊和偏暗的輸入。
+`configs/horse-textured-ltx.yaml` 使用新的 `horse_textured` 資產：
+42 個 skin joints、2,914 個三角形、2048×2048 真實毛色貼圖。
+下載來源是 [QtMeshEditor motion corpus](https://huggingface.co/datasets/fernandotonon/QtMeshEditor-motion-corpus)，
+原作者為 [abhayexe](https://sketchfab.com/abhayexe)，授權為 CC BY 4.0。
+下載來源固定到 dataset commit，逐檔檢查 SHA-256，再將 glTF、骨架、動畫與貼圖
+封裝成 GLB；不需要安裝 Blender。原作者的 license.txt 保留在資產 source 目錄。
+
+輸入圖使用斜側面視角與完整 UV 貼圖，不把 2K 毛色壓成少數頂點顏色。
+此模型的原始材質是 unlit、貼圖含烘焙明暗，因此沿用這個材質設定與 sRGB 輸出。
+原地動作設定讓馬低頭、抬頭、擺一次尾巴，四蹄與軀幹保持原位，鏡頭固定。
+流程以 bind pose 產生 I2V 輸入，動作仍由影片模型生成。
+舊的純色馬 `horse` 與 `horse-idle-ltx.yaml` 保留作除錯。
 生成解析度為 768×448、49 幀、40 steps；比原本 512×288、30 steps 需要更多資源。
 文字是軟性引導，仍可能生成走動、滑步或外觀改變，需要先看結果。
 
@@ -50,10 +59,10 @@ animimic video --config configs/fox-ltx.yaml --image path/to/canonical.png --out
 bash scripts/13_review_video.sh --render-only
 ```
 
-終端機會印出 `runs/horse/<run-id>/canonical.png`，先檢查全身與四蹄有沒有裁切、
+終端機會印出 `runs/horse_textured/<run-id>/canonical.png`，先檢查全身與四蹄有沒有裁切、
 身體與四肢能否辨識。不要沿用舊的背面圖。參考輸入：
 
-![原地動作輸入圖](asset-previews/horse-idle-input.png)
+![新馬的實際輸入圖](asset-previews/horse-textured-input.png)
 
 再生成到 video 階段就停止，不會載入 supervision 或執行 joint/FEM：
 
@@ -71,7 +80,7 @@ bash scripts/13_review_video.sh
 只有影片確認合格後，才執行：
 
 ```bash
-bash scripts/08_run_pipeline.sh configs/horse-idle-ltx.yaml
+bash scripts/08_run_pipeline.sh configs/horse-textured-ltx.yaml
 ```
 
 `13` 與完整流程共用同一份影片快取，不需要新增 `reference_video`，
@@ -91,24 +100,28 @@ animimic run --config configs/fox.yaml
 `--video-backend` 切換時保留 prompt/seed，但重設模型專屬的路徑、幀數和解析度，
 以免把 Wan 的 checkpoint 或 121-frame 設定誤套到 LTX。要精確控制時請使用 YAML。
 
-## 八個可下載資產
+## 九個可下載資產
 
 原本只有三個：Fox、CesiumMan、RobotExpressive。Fox 確實是 576 triangles 的
-low-poly fox，現在明確列為 debug；新增五個一般動物形態、帶貼圖的 game assets。
-它們不是電影級毛髮模型，也不以多個外觀變體湊樣本數。
+low-poly fox，現在明確列為 debug；另有六個動物資產，外觀品質不同。
+其中 horse 主要使用純色材質，唯一的 1024×1024 貼圖是純黑色，沒有毛色細節，
+僅適合流程除錯，不應視為寫實貼圖馬。新加入的 `horse_textured` 是另一個模型，
+有實際毛色貼圖與 skin；這裡共有五種動物，其中馬有兩個模型。
+其餘動物可先查看下方預覽；不以多個外觀變體湊樣本數。
 
 | ID | triangles | skin joints | 類型 |
 | --- | ---: | ---: | --- |
 | `fox` | 576 | 24 | low-poly animal debug |
 | `humanoid` | 4,672 | 19 | humanoid debug |
 | `robot` | 3,237 | 43 × 2 skins | robot debug |
-| `horse` | 32,124 | 65 | 馬，帶鞍 |
+| `horse` | 32,124 | 65 | 純色材質的帶鞍馬；外觀除錯用途 |
+| `horse_textured` | 2,914 | 42 | 有 2K 毛色紋理的馬；保留完整 UV 貼圖 |
 | `puppy` | 33,384 | 122 | 帶貼圖的狗 |
 | `shark` | 10,000 | 22 | 鼠鯊 |
 | `seagull` | 4,352 | 15 | 海鷗 |
 | `sea_turtle` | 27,796 | 44 | 肯氏龜 |
 
-新增五個均已實際下載、核對 hash、通過目前 importer、檢查多視角渲染；
+這六個動物資產均已實際下載、核對 hash、通過目前 importer、檢查多視角渲染；
 其 joint optimization/FEM 品質仍需個別跑實驗，尤其高骨架數與薄翼／鰭部位。
 
 ```bash
@@ -121,6 +134,10 @@ animimic run --config configs/puppy-ltx.yaml
 預覽：
 
 ![Horse](asset-previews/horse.png)
+
+新馬（完整 UV 貼圖）：
+
+![Textured horse](asset-previews/horse_textured.png)
 ![Dog](asset-previews/puppy.png)
 ![Shark](asset-previews/shark.png)
 ![Seagull](asset-previews/seagull.png)

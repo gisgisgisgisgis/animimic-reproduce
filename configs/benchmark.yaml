@@ -4,6 +4,7 @@ configs:
   - configs/humanoid.yaml
   - configs/robot.yaml
   - configs/horse-ltx.yaml
+  - configs/horse-textured-ltx.yaml
   - configs/puppy-ltx.yaml
   - configs/shark-ltx.yaml
   - configs/seagull-ltx.yaml

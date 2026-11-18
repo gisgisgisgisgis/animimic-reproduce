@@ -93,6 +93,7 @@ def previews(directory, rig, joints, physics, renderer, reference, fps):
             view = renderer if azimuth == 0 else Renderer(
                 rig["vertices"].device,
                 **{**renderer.settings, "azimuth": renderer.settings["azimuth"]+azimuth})
+            view.bind_material(rig)
             with iio.get_writer(directory/f"{label}_{azimuth}.mp4", fps=fps,
                                 macro_block_size=1) as writer:
                 with torch.no_grad():

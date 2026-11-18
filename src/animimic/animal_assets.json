@@ -9,7 +9,7 @@
     "metadata_source": "https://sketchfab.com/3d-models/animated-rigged-horse-with-saddle-b08743c2c4734fb98a4e0a2f5767c318",
     "faces": 32124,
     "joints": 65,
-    "style": "textured naturalistic game asset",
+    "style": "flat-color saddled horse; embedded texture is solid black; visual debug asset",
     "group": "animal"
   },
   "puppy": {
@@ -63,5 +63,55 @@
     "joints": 44,
     "style": "textured naturalistic game asset",
     "group": "animal"
+  },
+  "horse_textured": {
+    "name": "Horse Rigged(Game Ready)",
+    "url": "https://huggingface.co/datasets/fernandotonon/QtMeshEditor-motion-corpus/resolve/da7af50bca493e2208e1ba06c18d30e61d486a1c/raw/sketchfab/Horse_Rigged_Game_Ready__bc64f4ff/scene.gltf",
+    "sha256": "2050047b92188936dcd0947d08e5a8d5658edb0288e1a27c55825db3c5752837",
+    "format": "gltf",
+    "entrypoint": "scene.gltf",
+    "files": [
+      {
+        "path": "scene.gltf",
+        "sha256": "1b5ef7e5dc3897a9230d690524fef74ed41e8c20c22aeca6237f215619ce6f3b",
+        "url": "https://huggingface.co/datasets/fernandotonon/QtMeshEditor-motion-corpus/resolve/da7af50bca493e2208e1ba06c18d30e61d486a1c/raw/sketchfab/Horse_Rigged_Game_Ready__bc64f4ff/scene.gltf"
+      },
+      {
+        "path": "scene.bin",
+        "sha256": "76f4f663bb3370a49ef525e3403d7a26cfd1bab21a42e2642a6756ec7fd7a38e",
+        "url": "https://huggingface.co/datasets/fernandotonon/QtMeshEditor-motion-corpus/resolve/da7af50bca493e2208e1ba06c18d30e61d486a1c/raw/sketchfab/Horse_Rigged_Game_Ready__bc64f4ff/scene.bin"
+      },
+      {
+        "path": "textures/horse_mat_baseColor.png",
+        "sha256": "bf9a2a47c92c7b7925b68f77e7e5ebdf89e605c1b237197cafda4c91ea4d4d3c",
+        "url": "https://huggingface.co/datasets/fernandotonon/QtMeshEditor-motion-corpus/resolve/da7af50bca493e2208e1ba06c18d30e61d486a1c/raw/sketchfab/Horse_Rigged_Game_Ready__bc64f4ff/textures/horse_mat_baseColor.png"
+      },
+      {
+        "path": "license.txt",
+        "sha256": "4a8a03f925d649c6b75c33afa54b190c57bb7c40d3ae5f61a3cade90f827e06f",
+        "url": "https://huggingface.co/datasets/fernandotonon/QtMeshEditor-motion-corpus/resolve/da7af50bca493e2208e1ba06c18d30e61d486a1c/raw/sketchfab/Horse_Rigged_Game_Ready__bc64f4ff/license.txt"
+      }
+    ],
+    "license": "CC BY 4.0",
+    "credit": "abhayexe",
+    "source": "https://sketchfab.com/3d-models/horse-riggedgame-ready-bc64f4ff7966474ca9bacd42fa73a754",
+    "metadata_source": "https://huggingface.co/datasets/fernandotonon/QtMeshEditor-motion-corpus/blob/da7af50bca493e2208e1ba06c18d30e61d486a1c/manifest.json",
+    "faces": 2914,
+    "joints": 42,
+    "style": "naturalistic textured horse; verified 2K coat texture and skinned GLB; UV rendering",
+    "group": "animal",
+    "texture_size": [
+      2048,
+      2048
+    ],
+    "rig_nodes": 51,
+    "config": "configs/horse-textured-ltx.yaml",
+    "preview_camera": {
+      "lighting": "unlit",
+      "srgb": true,
+      "use_texture": true,
+      "distance": 1.8,
+      "elevation": 5
+    }
   }
 }
