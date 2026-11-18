@@ -74,6 +74,7 @@ def main():
     run = sub.add_parser("run")
     run.add_argument("--config", required=True)
     run.add_argument("--from-stage")
+    run.add_argument("--until-stage", choices=("render", "video"))
     run.add_argument("--force-stage")
     run.add_argument("--video-backend", choices=("wan", "ltx"))
     videos = sub.add_parser("video")
@@ -115,7 +116,7 @@ def main():
                 original = config["video"]
                 config["video"] = {k: original[k] for k in keep if k in original}
                 config["video"]["backend"] = args.video_backend
-        print(run(config, args.force_stage, args.from_stage))
+        print(run(config, args.force_stage, args.from_stage, args.until_stage))
     elif args.command == "video":
         from .video_backends import generate_video
         from .core import Cache

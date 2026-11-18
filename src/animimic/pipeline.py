@@ -2,6 +2,7 @@
 import json
 import subprocess
 import time
+import shutil
 from pathlib import Path
 
 import numpy as np
@@ -22,7 +23,11 @@ def repo_revision(path):
         return "not-installed"
 
 
-def run(config, force_stage=None, from_stage=None):
+def run(config, force_stage=None, from_stage=None, until_stage=None):
+    if until_stage not in (None, "render", "video"):
+        raise ValueError("until_stage must be render or video")
+    if from_stage and until_stage and STAGES.index(from_stage) > STAGES.index(until_stage):
+        raise ValueError("--from-stage cannot be after --until-stage")
     print("[pipeline] Loading dependencies...", flush=True)
     import torch
     from PIL import Image
@@ -31,7 +36,6 @@ def run(config, force_stage=None, from_stage=None):
     from .models import sample_video, segment_frames, track_frames, estimate_depth
     from .video_backends import generate_video, backend_name
     from .optimize import tensors, fit_joints
-    from .physics import tetrahedralize, fit_material
     from .render import Renderer
     from .export import export_glb, previews
     from .evaluate import metrics
@@ -95,21 +99,28 @@ def run(config, force_stage=None, from_stage=None):
     raw = dict(np.load(prepared/"rig.npz"))
     rig = tensors(raw, device)
     camera = config.get("camera", {})
-    renderer = Renderer(device, camera.get("width", 512), camera.get("height", 288),
-                        camera.get("azimuth", 0))
+    renderer = Renderer(device, **camera)
     def render(out):
         with torch.no_grad():
             image, mask = renderer(rig["vertices"], rig["faces"], rig["colors"])
-        Image.fromarray((image.clamp(0, 1).cpu().numpy()*255).astype(np.uint8)).resize(
-            (1280, 704)).save(out/"canonical.png")
+        picture = Image.fromarray((image.clamp(0, 1).cpu().numpy()*255).astype(np.uint8))
+        # Keep the legacy Wan image size; LTX uses the native render without a
+        # redundant enlargement and resize back down.
+        if backend_name(config["video"]) == "wan":
+            picture = picture.resize((1280, 704))
+        picture.save(out/"canonical.png")
         np.save(out/"mask.npy", mask.cpu().numpy())
         return ["canonical.png", "mask.npy"]
-    rendered = stage("render", camera, {"rig": file_hash(prepared/"rig.npz")},
+    render_settings = camera if backend_name(config["video"]) == "wan" else {**camera, "native_image": True}
+    rendered = stage("render", render_settings, {"rig": file_hash(prepared/"rig.npz")},
                      render, ["render.py"])
+    shutil.copy2(rendered/"canonical.png", run_dir/"canonical.png")
+    if until_stage == "render":
+        print(f"[review] Input image: {run_dir/'canonical.png'}", flush=True)
+        return run_dir
     video_config = config["video"]
     def video(out):
         if config.get("reference_video"):
-            import shutil
             shutil.copyfile(config["reference_video"], out/"reference.mp4")
         else:
             generate_video(rendered/"canonical.png", out/"reference.mp4", video_config)
@@ -124,6 +135,14 @@ def run(config, force_stage=None, from_stage=None):
         video_inputs["external_video"] = file_hash(config["reference_video"])
     generated = stage("video", video_config, video_inputs, video,
                       ["models.py"] if backend == "wan" else ["video_backends.py"])
+    if until_stage == "video":
+        from .video_review import write_review
+        write_review(rendered/"canonical.png", generated/"reference.mp4", run_dir, video_config)
+        print(f"[review] Video: {run_dir/'reference.mp4'}", flush=True)
+        print(f"[review] Contact sheet: {run_dir/'video-review.jpg'}", flush=True)
+        print("[review] Stopped after video. Check the result before running later stages.", flush=True)
+        return run_dir
+    from .physics import tetrahedralize, fit_material
     def supervise(out):
         frames, indices = sample_video(generated/"reference.mp4", out/"frames",
             video_config.get("sample_frames", 25), renderer.size[::-1])

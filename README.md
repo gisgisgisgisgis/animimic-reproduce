@@ -39,11 +39,21 @@ bash scripts/07_generate_video.sh inputs/reference.png configs/fox-ltx.yaml runs
 # 若主機找不到 nvcc，先安裝使用者目錄內的 toolkit：
 bash scripts/12_install_cuda_toolkit.sh
 bash scripts/03_install_pipeline.sh ltx
-bash scripts/04_build_tetwild.sh
 bash scripts/05_fetch_assets.sh horse
-bash scripts/06_check.sh configs/horse-ltx.yaml
-bash scripts/08_run_pipeline.sh configs/horse-ltx.yaml
+# 先看輸入圖，再只生成影片；不會接著跑 joint/FEM：
+bash scripts/13_review_video.sh --render-only
+bash scripts/13_review_video.sh
+# 確認影片合格後才繼續：
+bash scripts/04_build_tetwild.sh
+bash scripts/06_check.sh configs/horse-idle-ltx.yaml
+bash scripts/08_run_pipeline.sh configs/horse-idle-ltx.yaml
 ```
+
+`13` 預設使用馬的原地動作設定，輸出位置會印在終端機：
+`runs/horse/<run-id>/canonical.png`、`reference.mp4` 與 `video-review.jpg`。
+先確認只有一匹馬、腳留在原位、外形和鏡頭穩定，再執行完整流程。
+若影片不合格，修改 `configs/horse-idle-ltx.yaml` 的 prompt 或 seed 後重跑 `13`。
+確認後用同一份 YAML 跑 `08`，會共用影片快取，不需重新生成。
 
 不要在前一個步驟失敗時直接繼續下一個。腳本不會使用 sudo 安裝系統驅動，
 完整 pipeline 仍需主機提供相容的 CUDA compiler／C++ compiler。
@@ -67,6 +77,7 @@ bash scripts/08_run_pipeline.sh configs/horse-ltx.yaml
 | `10_tests.sh` | offline tests + pip check |
 | `11_preview_asset.sh [角色]` | CPU 多視角資產預覽；預設 horse |
 | `12_install_cuda_toolkit.sh` | 選用；在 .cache/cuda-12.4 安裝 nvcc / CUDA toolkit，不更動 driver |
+| `13_review_video.sh [CONFIG] [--render-only]` | 預設 horse-idle-ltx；先檢查輸入與影片，停止在 render 或 video |
 
 每個入口都可用 `--help` 查看參數。例如：
 

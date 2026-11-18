@@ -3,20 +3,32 @@ import torch
 
 
 class Renderer:
-    def __init__(self, device, width=512, height=288, azimuth=0):
+    def __init__(self, device, width=512, height=288, azimuth=0,
+                 distance=2.2, elevation=10, fov=35, lighting="legacy", srgb=False):
         from pytorch3d.renderer import (
             FoVPerspectiveCameras, look_at_view_transform, RasterizationSettings,
             MeshRasterizer, MeshRenderer, SoftPhongShader, SoftSilhouetteShader,
             BlendParams, PointLights,
         )
-        r, t = look_at_view_transform(2.2, 10, azimuth, device=device)
+        self.settings = dict(width=width, height=height, azimuth=azimuth,
+                             distance=distance, elevation=elevation, fov=fov,
+                             lighting=lighting, srgb=srgb)
+        self.srgb = srgb
+        r, t = look_at_view_transform(distance, elevation, azimuth, device=device)
         self.camera = FoVPerspectiveCameras(device=device, R=r, T=t,
-                                           fov=35, aspect_ratio=1.0)
+                                           fov=fov, aspect_ratio=1.0)
         self.size = (height, width)
         self.rasterizer = MeshRasterizer(cameras=self.camera,
             raster_settings=RasterizationSettings(image_size=self.size,
                                                    blur_radius=0, faces_per_pixel=1))
-        lights = PointLights(device=device, location=[[0., 2., 3.]])
+        if lighting == "studio":
+            lights = PointLights(device=device, location=self.camera.get_camera_center(),
+                ambient_color=((.8, .8, .8),), diffuse_color=((.2, .2, .2),),
+                specular_color=((0., 0., 0.),))
+        elif lighting == "legacy":
+            lights = PointLights(device=device, location=[[0., 2., 3.]])
+        else:
+            raise ValueError(f"Unknown lighting: {lighting}")
         self.rgb = MeshRenderer(self.rasterizer, SoftPhongShader(
             device=device, cameras=self.camera, lights=lights,
             blend_params=BlendParams(background_color=(1, 1, 1))))
@@ -38,7 +50,12 @@ class Renderer:
 
     def __call__(self, vertices, faces, colors):
         mesh = self.mesh(vertices, faces, colors)
-        return self.rgb(mesh)[0, ..., :3], self.mask(mesh)[0, ..., 3]
+        rgb = self.rgb(mesh)[0, ..., :3]
+        if self.srgb:
+            # glTF factors and vertex colors are linear; PNG/video displays sRGB.
+            rgb = torch.where(rgb <= .0031308, 12.92*rgb,
+                              1.055*rgb.clamp_min(1e-12).pow(1/2.4)-.055)
+        return rgb, self.mask(mesh)[0, ..., 3]
 
     def project(self, points):
         return self.camera.transform_points_screen(points[None], image_size=[self.size])[0, ..., :2]

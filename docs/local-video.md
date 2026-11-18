@@ -39,31 +39,44 @@ animimic video --config configs/fox-ltx.yaml --image path/to/canonical.png --out
 ## 先檢查原地動作影片
 
 `configs/horse-idle-ltx.yaml` 是馬的原地動作設定：四蹄保持原位、軀幹位置與
-方向不變，只做小幅點頭與耳朵動作，鏡頭與背景固定。原本設定仍保留。
-這份設定只調整 prompt，解析度、步數、seed 與原本 LTX 預設相同，方便比較。
+方向不變，只做一次小幅點頭，鏡頭與背景固定。原本設定仍保留。
+這份設定使用斜側面視角、studio 光照與 sRGB 輸出，改善背面重疊和偏暗的輸入。
+生成解析度為 768×448、49 幀、40 steps；比原本 512×288、30 steps 需要更多資源。
 文字是軟性引導，仍可能生成走動、滑步或外觀改變，需要先看結果。
 
-從上一輪 `runs/horse/<run-id>/manifest.json` 的 `stages.render.directory`
-找到 `canonical.png`，用它單獨生成影片：
+先確認輸入圖，這一步只做 prepare/render，不生成影片：
 
 ```bash
-bash scripts/07_generate_video.sh path/to/canonical.png configs/horse-idle-ltx.yaml runs/horse-idle-reference.mp4
+bash scripts/13_review_video.sh --render-only
 ```
 
-先確認馬的外形、四肢、腳的位置和鏡頭穩定，動作有變化但沒有整隻滑動。
-如果不合格，修改 prompt 或 seed 再生成，先不要跑 joint/FEM。
-如果合格，在這份 YAML 最外層加入以下設定，再跑完整流程，便會使用該影片：
+終端機會印出 `runs/horse/<run-id>/canonical.png`，先檢查全身與四蹄有沒有裁切、
+身體與四肢能否辨識。不要沿用舊的背面圖。參考輸入：
 
-```yaml
-reference_video: runs/horse-idle-reference.mp4
+![原地動作輸入圖](asset-previews/horse-idle-input.png)
+
+再生成到 video 階段就停止，不會載入 supervision 或執行 joint/FEM：
+
+```bash
+bash scripts/13_review_video.sh
 ```
+
+同一個 run 目錄會得到 `canonical.png`、`reference.mp4`、`video-review.jpg`
+（輸入圖加八個抽樣影格）、`video-review.json`（設定與檢查項目）。
+請確認始終只有原本那匹馬、外形與馬鞍穩定、腳留在原地、頭部有指定動作，
+鏡頭與背景固定。抽幀圖方便比較，但仍需播放影片檢查閃爍與滑步。
+影片若不合格，先改 YAML 的 prompt/negative_prompt 或 seed，再跑 `13`。
+只改 seed/prompt 會沿用渲染；改相機時會重新渲染。舊快取保留。
+
+只有影片確認合格後，才執行：
 
 ```bash
 bash scripts/08_run_pipeline.sh configs/horse-idle-ltx.yaml
 ```
 
-不設定 `reference_video` 時，完整流程會自行生成影片；單獨生成與完整流程的
-影片快取目前是不同命名空間，因此先試片後請設定 `reference_video`，避免再次生成。
+`13` 與完整流程共用同一份影片快取，不需要新增 `reference_video`，
+也不需要重跑生成。這個流程沒有自動判定影片合格，不會自動接著做最佳化。
+`08` 也支援 `--until-stage render` 或 `--until-stage video`。
 提高解析度或步數可另外實驗，但不能保證解決動物形變或動作不遵從的問題。
 
 完整 pipeline：

@@ -129,6 +129,13 @@ class ShellEntrypointTests(unittest.TestCase):
         self.assertEqual(record["gpu"], "3")
         self.assertEqual(record["hf"], str(caller/"hf cache"))
 
+    def test_review_stops_at_requested_stage(self):
+        record, caller = self.invoke("13_review_video.sh", ["my config.yaml", "--render-only"])
+        self.assertEqual(record["args"], ["-m", "animimic.cli", "run", "--config",
+                         str(caller/"my config.yaml"), "--until-stage", "render"])
+        record, _ = self.invoke("13_review_video.sh", [])
+        self.assertEqual(record["args"][-2:], ["--until-stage", "video"])
+
     def test_video_keeps_caller_relative_paths_with_spaces(self):
         record, caller = self.invoke("07_generate_video.sh",
             ["input image.png", "my config.yaml", "my output.mp4"])

@@ -8,6 +8,25 @@ import torch
 
 @unittest.skipUnless(importlib.util.find_spec("pytorch3d"), "PyTorch3D unavailable")
 class RenderOptimizationTests(unittest.TestCase):
+    def test_srgb_display_preserves_mask_and_finite_gradients(self):
+        from pytorch3d.utils import ico_sphere
+        from animimic.render import Renderer
+        sphere = ico_sphere(1)
+        vertices = (sphere.verts_packed()*.25).requires_grad_()
+        faces = sphere.faces_packed()
+        colors = torch.ones_like(vertices)*.05
+        linear = Renderer("cpu", 32, 24, lighting="studio")
+        display = Renderer("cpu", 32, 24, lighting="studio", srgb=True)
+        rgb, mask = linear(vertices, faces, colors)
+        actual, actual_mask = display(vertices, faces, colors)
+        expected = torch.where(rgb <= .0031308, 12.92*rgb,
+                               1.055*rgb.clamp_min(1e-12).pow(1/2.4)-.055)
+        torch.testing.assert_close(actual, expected)
+        torch.testing.assert_close(actual_mask, mask)
+        self.assertGreater(actual[mask>.5].mean(), rgb[mask>.5].mean())
+        actual.sum().backward()
+        self.assertTrue(torch.isfinite(vertices.grad).all())
+
     def test_real_render_and_joint_optimizer(self):
         from pytorch3d.utils import ico_sphere
         from animimic.render import Renderer
