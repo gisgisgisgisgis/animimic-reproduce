@@ -155,7 +155,8 @@ def fit_material(rig, data, joint_world, target, renderer, directory, config, dt
             trajectory_log_e = log_e.detach().clone()
             surface = (trajectory[:, embedding]*bary[None, ..., None]).sum(-2).float()
             losses = video_loss(surface, rig, target, renderer, progress=progress)
-            loss = sum(losses.values())
+            weights = config.get("loss_weights", {})
+            loss = sum(weights.get(k, 1)*v for k, v in losses.items())
             if not torch.isfinite(loss):
                 raise RuntimeError("Nonfinite material objective")
             progress.detail("backward pass")

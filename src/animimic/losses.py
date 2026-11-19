@@ -11,17 +11,31 @@ def weighted_huber(pred, target, weight):
     return (error * weight).sum() / weight.sum().clamp_min(1)
 
 
-def masked_rgb(pred, target, mask):
-    error = ((pred-target).square()+1e-6).sqrt()
-    weight = mask[..., None].expand_as(error)
-    return (error*weight).sum()/weight.sum().clamp_min(1)
+def frame_l2(pred, target, valid=None):
+    """Mean over frames of the Euclidean residual norm (Eqs. 5–8).
+
+    L2 is an explicit implementation choice where the paper leaves the norm
+    unspecified. A boolean validity mask only excludes missing observations.
+    """
+    error = pred-target
+    if valid is not None:
+        while valid.ndim < error.ndim:
+            valid = valid.unsqueeze(-1)
+        error = torch.where(valid, error, torch.zeros_like(error))
+    return torch.linalg.vector_norm(error.flatten(1), dim=1).mean()
 
 
-def silhouette(pred, target):
-    bce = F.binary_cross_entropy(pred.clamp(1e-6, 1-1e-6), target)
-    intersection = (pred * target).sum()
-    union = pred.sum() + target.sum() - intersection
-    return bce + 1 - (intersection + 1e-6) / (union + 1e-6)
+def joint_regularization(rotation, translation, roots, rotation_bound=1., translation_bound=.1):
+    """Eq. 9: componentwise clipping of non-root 6D rotation/translation.
+
+    Bounds apply to the learned rest-local parameters; values are project
+    choices, since the paper provides no numerical thresholds.
+    """
+    parameters = torch.cat((rotation[:, ~roots], translation[:, ~roots]), dim=-1)
+    bounds = parameters.new_tensor([rotation_bound]*6+[translation_bound]*3)
+    if (bounds <= 0).any() or not torch.isfinite(bounds).all():
+        raise ValueError("Joint clipping bounds must be finite and positive")
+    return frame_l2(parameters, parameters.clamp(-bounds, bounds))
 
 
 def smoothness(vertices):
@@ -54,12 +68,25 @@ def stationary_track_weights(tracks, weight, threshold=2.):
     return torch.where(reliable & stable[None], weight, torch.zeros_like(weight))
 
 
-def normalize_depth(depth, valid):
-    result = torch.zeros_like(depth)
-    for i in range(len(depth)):
-        selected = depth[i][valid[i]]
-        if selected.numel():
-            median = selected.median()
-            mad = (selected - median).abs().median().clamp_min(1e-6)
-            result[i] = (depth[i] - median) / mad
-    return result
+def normalize_depth(depth, reference, valid):
+    """Instantiate target-only N(D) in Eq. 8; no pose-dependent normalization.
+
+    Assumption (not specified by the paper): align each observed frame's
+    median/MAD to the fixed canonical mesh's camera-depth median/MAD.
+    This keeps the target in camera units rather than centering it at zero.
+    """
+    with torch.no_grad():
+        result = torch.zeros_like(depth)
+        reference = reference.detach()
+        if not valid[0].any():
+            raise ValueError("Depth normalization needs valid first-frame tracks")
+        canonical = reference[valid[0]]
+        center = canonical.median()
+        spread = (canonical-center).abs().median()
+        for i in range(len(depth)):
+            selected = depth[i][valid[i]]
+            if selected.numel():
+                median = selected.median()
+                mad = (selected-median).abs().median().clamp_min(1e-6)
+                result[i] = (depth[i]-median)/mad*spread+center
+        return result

@@ -206,12 +206,15 @@ def run(config, force_stage=None, from_stage=None, until_stage=None):
         {"rig": file_hash(prepared/"rig.npz")},
         lambda out: tetrahedralize(raw, out, config.get("physics", {})), ["physics.py"])
     dt = float(np.diff(indices).mean())/video_fps
-    physics_dir = stage("physics", config.get("physics", {}),
+    # Eq. 13 reuses the image-space objective and lambda weights from Eq. 4.
+    physics_config = {**config.get("physics", {}),
+                      "loss_weights": config.get("joints", {}).get("loss_weights", {})}
+    physics_dir = stage("physics", physics_config,
         {"tet": file_hash(tet_dir/"tetrahedral.npz"), "joint": file_hash(joint_dir/"joint_trajectory.npz"),
          "supervision": file_hash(supervised/"supervision.npz")},
         lambda out: fit_material(rig, dict(np.load(tet_dir/"tetrahedral.npz")),
             torch.tensor(joint["world"], device=device), target, renderer, out,
-            config.get("physics", {}), dt), ["physics.py", "fem.py", "optimize.py", "losses.py"])
+            physics_config, dt), ["physics.py", "fem.py", "optimize.py", "losses.py"])
     def export(out):
         write_joint_review(out, rig, joint["local"], renderer,
                            generated/"reference.mp4", indices, video_fps)

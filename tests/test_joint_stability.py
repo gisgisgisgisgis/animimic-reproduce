@@ -1,5 +1,6 @@
 import contextlib
 import io
+import json
 from pathlib import Path
 import tempfile
 import unittest
@@ -61,7 +62,7 @@ class JointStabilityTests(unittest.TestCase):
                       visibility=torch.ones(count, 6), confidence=torch.ones(count, 6),
                       triangles=torch.tensor([0, 0, 0, 1, 1, 1]),
                       barycentric=torch.eye(3).repeat(2, 1), frame_times=times)
-        def objective(predicted, *args):
+        def objective(predicted, *args, **kwargs):
             return {"track": (predicted[..., :2]-noisy[..., :2]).square().mean(),
                     "depth": (predicted[..., 2]-noisy[..., 2]).square().mean()}
         settings = dict(root_iterations=0, geometry_iterations=160, full_iterations=0,
@@ -70,12 +71,24 @@ class JointStabilityTests(unittest.TestCase):
             loss_weights = dict(track=1000., depth=1000.)
             if legacy:
                 loss_weights.update(rotation_smooth=0., root_smooth=0., stationary=0.)
+            else:
+                loss_weights.update(rotation_smooth=.01, root_smooth=.1, stationary=1.)
             with tempfile.TemporaryDirectory() as directory, contextlib.redirect_stdout(io.StringIO()), \
                  patch("animimic.optimize.video_loss", side_effect=objective):
-                fit_joints(rig, target, None, Path(directory),
-                           {**settings, "optimize_joint_translations": legacy, "loss_weights": loss_weights})
+                config = {**settings, "loss_weights": loss_weights}
+                if legacy:
+                    # Exercise the baseline defaults: learn child translations,
+                    # with none of the experimental priors enabled.
+                    config["loss_weights"] = dict(track=1000., depth=1000.)
+                else:
+                    config["optimize_joint_translations"] = False
+                fit_joints(rig, target, None, Path(directory), config)
+                if legacy:
+                    history = json.loads((Path(directory)/"joint_losses.json").read_text())
+                    self.assertFalse({"rotation_smooth", "root_smooth", "stationary"} & history[-1].keys())
                 return dict(np.load(Path(directory)/"joint_trajectory.npz"))
         before, after = solve(True), solve(False)
+        self.assertGreater(np.abs(before["translation"][:, 1:]).max(), .001)
         jitter_before = np.mean(np.diff(before["vertices"][:, :3], n=2, axis=0)**2)
         jitter_after = np.mean(np.diff(after["vertices"][:, :3], n=2, axis=0)**2)
         self.assertLess(jitter_after, jitter_before*.4)

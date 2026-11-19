@@ -77,7 +77,9 @@ class Renderer:
         return rgb, self.mask(mesh)[0, ..., 3]
 
     def project(self, points):
-        return self.camera.transform_points_screen(points[None], image_size=[self.size])[0, ..., :2]
+        # PyTorch3D screen coordinates put pixel centers at (x+.5, y+.5).
+        # AllTracker indexes the same centers by integer (x, y).
+        return self.camera.transform_points_screen(points[None], image_size=[self.size])[0, ..., :2] - .5
 
     def depth(self, points):
         return self.camera.get_world_to_view_transform().transform_points(points)[..., 2]

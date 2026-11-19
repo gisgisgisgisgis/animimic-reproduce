@@ -1,9 +1,9 @@
-"""Three-phase pose fitting and the shared image-space objective."""
+"""Joint fitting and the shared objective following paper Eqs. 4–9."""
 import numpy as np
 import torch
 
 from .core import save_history
-from .losses import normalize_depth, silhouette, smoothness, weighted_huber, masked_rgb
+from .losses import normalize_depth, frame_l2, joint_regularization, smoothness, weighted_huber
 from .losses import temporal_acceleration, stationary_track_weights
 from .rig import fk, lbs, pose_local
 from .rig import rotation_6d
@@ -16,18 +16,22 @@ def tensors(rig, device):
             for k, v in rig.items()}
 
 
-def video_loss(vertices, rig, target, renderer, phase="full", progress=None):
+def video_loss(vertices, rig, target, renderer, progress=None):
     frames, masks = target["frames"], target["masks"]
     tri, beta = target["triangles"], target["barycentric"]
     points = (vertices[:, rig["faces"][tri]] * beta[None, :, :, None]).sum(-2)
     projected = torch.stack([renderer.project(p) for p in points])
-    scale = max(renderer.size)
-    weight = target["visibility"] * target["confidence"]
-    track = weighted_huber(projected/scale, target["tracks"]/scale, weight)
+    # Exclude only coordinates outside the image (no depth observation exists).
+    # The paper does not prescribe a confidence-weighted or Huber objective.
+    tracks = target["tracks"]
+    h, w = renderer.size
+    valid = ((tracks[..., 0] >= 0) & (tracks[..., 0] <= w-1)
+             & (tracks[..., 1] >= 0) & (tracks[..., 1] <= h-1))
+    track = frame_l2(projected, tracks, valid)
     depths = torch.stack([renderer.depth(p) for p in points])
-    valid = weight > 0.1
-    depth = weighted_huber(normalize_depth(depths, valid),
-                           normalize_depth(target["depth"], valid), weight)
+    canonical_points = (rig["vertices"][rig["faces"][tri]]*beta[..., None]).sum(-2)
+    normalized_target = normalize_depth(target["depth"], renderer.depth(canonical_points), valid)
+    depth = frame_l2(depths, normalized_target, valid)
     rgb, mask = [], []
     for frame, value in enumerate(vertices, 1):
         if progress:
@@ -36,11 +40,8 @@ def video_loss(vertices, rig, target, renderer, phase="full", progress=None):
         rgb.append(image)
         mask.append(alpha)
     rgb, mask = torch.stack(rgb), torch.stack(mask)
-    losses = {"mask": silhouette(mask, masks), "track": track, "depth": depth,
-              "smooth": smoothness(vertices)}
-    if phase == "full":
-        losses["rgb"] = masked_rgb(rgb, frames, masks)
-    return losses
+    return {"rgb": frame_l2(rgb, frames), "mask": frame_l2(mask, masks),
+            "track": track, "depth": depth, "smooth": smoothness(vertices)}
 
 
 def fit_joints(rig, supervision, renderer, output, config):
@@ -51,65 +52,58 @@ def fit_joints(rig, supervision, renderer, output, config):
     rotation.requires_grad_()
     translation = torch.zeros(n, j, 3, device=device, requires_grad=True)
     optimizer = torch.optim.Adam([rotation, translation], lr=config.get("learning_rate", 1e-3))
-    phases = [("root", config.get("root_iterations", 100)),
-              ("geometry", config.get("geometry_iterations", 300)),
-              ("full", config.get("full_iterations", 300))]
+    # Old phase counts remain accepted as a total budget, with one full objective.
+    old_counts = ("root_iterations", "geometry_iterations", "full_iterations")
+    iterations = config.get("iterations", sum(config.get(k, 0) for k in old_counts)
+                            if any(k in config for k in old_counts) else 700)
+    if not isinstance(iterations, int) or iterations < 1:
+        raise ValueError("Joint iterations must be a positive integer")
     history = []
     parents = rig["parents"].tolist()
-    # Root phase can change all scene-root transforms, including an inserted scene ancestor.
+    # Include scene ancestors in the root exclusion for Eq. 9.
     roots = rig["parents"] < 0
-    # Only scene roots may translate by default; child offsets define bone lengths.
-    movable = torch.ones_like(roots) if config.get("optimize_joint_translations", False) else roots
+    # Paper §3.1.2 optimizes rotation AND translation for every joint.
+    # Freezing child offsets is an optional experiment, not the baseline.
+    movable = torch.ones_like(roots) if config.get("optimize_joint_translations", True) else roots
     times = supervision.get("frame_times", torch.arange(n, device=device)/24)
     if len(times) != n or not torch.isfinite(times).all() or (times[1:] <= times[:-1]).any():
         raise ValueError("Joint frame times must be finite and strictly increasing")
-    stationary = stationary_track_weights(supervision["tracks"],
-        supervision["visibility"]*supervision["confidence"], config.get("stationary_track_px", 2.))
-    weights = {"rotation_smooth": .01, "root_smooth": .1, "stationary": 1.,
+    weights = {"rotation_smooth": 0., "root_smooth": 0., "stationary": 0.,
                **config.get("loss_weights", {})}
-    lengths = rig["local"][:, :3, 3].norm(dim=-1).clamp_min(1e-4)
-    translation_bound = lengths*config.get("max_translation_bone_fraction", .1)
-    for phase_index, (phase, iterations) in enumerate(phases, 1):
-        progress = Progress(f"joints {phase_index}/3 {phase}", iterations)
-        for iteration in range(iterations):
-            optimizer.zero_grad()
-            effective_translation = translation*movable[None, :, None]
-            local = pose_local(rig["local"], rotation, effective_translation)
-            world = fk(local, parents)
-            vertices = lbs(rig["vertices"], rig["weights"], world, rig["inverse_bind"])
-            losses = video_loss(vertices, rig, supervision, renderer, phase, progress)
-            matrices = rotation_6d(rotation)
+    if weights["stationary"]:
+        stationary = stationary_track_weights(supervision["tracks"],
+            supervision["visibility"]*supervision["confidence"], config.get("stationary_track_px", 2.))
+    progress = Progress("joints full", iterations)
+    for iteration in range(iterations):
+        optimizer.zero_grad()
+        effective_translation = translation*movable[None, :, None]
+        local = pose_local(rig["local"], rotation, effective_translation)
+        world = fk(local, parents)
+        vertices = lbs(rig["vertices"], rig["weights"], world, rig["inverse_bind"])
+        losses = video_loss(vertices, rig, supervision, renderer, progress=progress)
+        matrices = rotation_6d(rotation)
+        if weights["rotation_smooth"]:
             losses["rotation_smooth"] = temporal_acceleration(matrices, times)
+        if weights["root_smooth"]:
             losses["root_smooth"] = temporal_acceleration(world[:, roots, :3, 3], times)
+        if weights["stationary"]:
             points = (vertices[:, rig["faces"][supervision["triangles"]]]
                       * supervision["barycentric"][None, :, :, None]).sum(-2)
-            # Reliable stationary 2D points disambiguate unwanted depth motion.
-            # Moving or occluded tracks do not impose a planted-foot assumption.
             losses["stationary"] = weighted_huber(points/.01, points[:1].expand_as(points)/.01, stationary)
-            losses["regularization"] = (
-                (translation[:, ~roots].abs()-translation_bound[None, ~roots, None]).clamp_min(0).square().mean()
-                if (~roots).any() else translation.sum()*0)
-            if (~roots).any():
-                cosine = ((matrices[:, ~roots].diagonal(dim1=-2, dim2=-1).sum(-1)-1)/2).clamp(-1+1e-6, 1-1e-6)
-                angle = torch.acos(cosine)
-                bound = config.get("max_rotation_deg", 75)*np.pi/180
-                losses["regularization"] = losses["regularization"] + (angle-bound).clamp_min(0).square().mean()
-            loss = sum(weights.get(k, 1)*v for k, v in losses.items())
-            if not torch.isfinite(loss):
-                raise RuntimeError("Nonfinite joint objective")
-            progress.detail("backward pass")
-            loss.backward()
-            if phase == "root":
-                rotation.grad[:, ~roots] = 0
-                translation.grad[:, ~roots] = 0
-            torch.nn.utils.clip_grad_norm_([rotation, translation], 1, error_if_nonfinite=True)
-            optimizer.step()
-            history.append({"phase": phase, "iteration": iteration,
-                            **{k: float(v.detach()) for k, v in losses.items()}})
-            progress.advance(float(loss.detach()))
-        save_history(output/"joint_losses.json", history)
-        np.savez_compressed(output/"joint_checkpoint.npz",
-                            rotation=rotation.detach().cpu(), translation=(translation*movable[None, :, None]).detach().cpu())
+        losses["regularization"] = joint_regularization(rotation, translation, roots,
+            config.get("rotation_bound", 1.), config.get("translation_bound", .1))
+        loss = sum(weights.get(k, 1)*v for k, v in losses.items())
+        if not torch.isfinite(loss):
+            raise RuntimeError("Nonfinite joint objective")
+        progress.detail("backward pass")
+        loss.backward()
+        optimizer.step()
+        history.append({"phase": "full", "iteration": iteration,
+                        **{k: float(v.detach()) for k, v in losses.items()}})
+        progress.advance(float(loss.detach()))
+    save_history(output/"joint_losses.json", history)
+    np.savez_compressed(output/"joint_checkpoint.npz",
+                        rotation=rotation.detach().cpu(), translation=(translation*movable[None, :, None]).detach().cpu())
     with torch.no_grad():
         translation = translation*movable[None, :, None]
         local = pose_local(rig["local"], rotation, translation)

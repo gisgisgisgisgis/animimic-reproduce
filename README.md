@@ -389,14 +389,15 @@ bash scripts/08_run_pipeline.sh configs/horse-textured-ltx-5s.yaml --until-stage
 
 結果會在 `runs/<asset>/<run-id>/joint-review/`，包含並排比較、左右斜側面與 GLB。
 joint 預覽會以來源影片 fps 插值輸出，避免五秒僅 25 幀的低幀率跳動。
-骨長保持、關節平滑與靜止追蹤點約束，見 [Joint 穩定與檢查](docs/joint-stability.md)。
+joint 預覽與預設關閉的穩定化實驗，見 [Joint 預覽與設定](docs/joint-stability.md)。
+論文差異、監督檢查與 `14_review_supervision.sh` 用法，見 [實作核對報告](docs/paper-implementation-audit.md)。
 
 終端機會列出目前階段、是否使用快取，以及各最佳化階段的迭代進度，例如：
 
 ```text
 [stage 4/8 supervision] Cache hit | elapsed 00:00:01
 [stage 5/8 joints] Running
-[joints 1/3 root] 1/100 (1.0%) | loss=0.42 | elapsed 00:00:08 | ETA 00:13:12
+[joints full] 1/700 (0.1%) | loss=42 | elapsed 00:00:08 | ETA 01:33:12
 ```
 
 ETA 依目前階段已完成的迭代估算，不包含後續階段。較長的迭代會間隔顯示
@@ -558,12 +559,15 @@ python -m pip check
 
 Joint stage 使用 6D rotation、FK/LBS 與 RGB、mask、tracking、normalized depth、
 temporal smoothness、joint regularization losses。
-預設保持子關節 offset，並以實際時間計算關節加速度、約束可信靜止點的 3D 漂移。
+預設最佳化所有關節的旋轉與位移；額外的關節平滑和靜止點約束預設關閉。
+RGB／mask／tracking／depth 使用逐影格 L2 norm 平均，depth 只正規化目標。
+關節正則化依非 root 參數 clipping 計算；從第一步就用完整目標，不再分三階段。
+論文未明訂的 N、norm 種類、bounds 與 lambda，見 [公式與實作假設](docs/paper-implementation-audit.md)。
 FEM 使用 fixed-corotated elasticity、backward Euler、Newton/CG、
 joint boundary conditions 與 implicit adjoint；Warp 計算能量，
 PyTorch 提供相同公式的導數與 Hessian-vector products。
 
-論文未公開的超參數採用本專案 defaults：Adam 1e-3、loss weights 1、
+Adam 1e-3 是論文明載設定。其他未公開的超參數採用本專案 defaults：loss weights 1、
 25 個 sampled frames、Poisson ratio 0.45、normalized density 1、四個 substeps。
 材質數值對應 normalized mesh 尺度。無 gravity 或 collision/contact。
 `horse_textured` 的輸入與渲染保留完整 UV 貼圖；其他預設與 skeletal GLB 匯出

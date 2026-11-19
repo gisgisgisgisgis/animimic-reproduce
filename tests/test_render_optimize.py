@@ -8,6 +8,17 @@ import torch
 
 @unittest.skipUnless(importlib.util.find_spec("pytorch3d"), "PyTorch3D unavailable")
 class RenderOptimizationTests(unittest.TestCase):
+    def test_surface_samples_project_to_tracker_pixel_centers(self):
+        from pytorch3d.utils import ico_sphere
+        from animimic.render import Renderer
+        sphere = ico_sphere(1)
+        vertices, faces = sphere.verts_packed()*.25, sphere.faces_packed()
+        for width, height in ((64, 40), (40, 64)):
+            renderer = Renderer("cpu", width, height)
+            tri, beta, pixels = renderer.surface_samples(vertices, faces, torch.ones_like(vertices), 32)
+            points = (vertices[faces[tri]]*beta[..., None]).sum(-2)
+            torch.testing.assert_close(renderer.project(points), pixels.float(), atol=1e-4, rtol=0)
+
     def test_srgb_display_preserves_mask_and_finite_gradients(self):
         from pytorch3d.utils import ico_sphere
         from animimic.render import Renderer
