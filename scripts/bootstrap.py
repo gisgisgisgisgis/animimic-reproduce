@@ -45,7 +45,14 @@ def main():
             ["git", "-C", str(directory), "rev-parse", "HEAD"], text=True).strip()
         if args.clone_only or name == "fTetWild":
             continue
-        if name in ("Wan2.2", "alltracker"):
+        if name == "Wan2.2":
+            # flash_attn imports torch while preparing its build metadata. Use
+            # the active CUDA PyTorch instead of pip's temporary isolated env.
+            subprocess.run([sys.executable, "-m", "pip", "install",
+                            "setuptools>=69", "wheel", "packaging", "psutil", "ninja"], check=True)
+            subprocess.run([sys.executable, "-m", "pip", "install", "--no-build-isolation", "-r",
+                            str(directory/"requirements.txt")], check=True)
+        elif name == "alltracker":
             subprocess.run([sys.executable, "-m", "pip", "install", "-r",
                             str(directory/"requirements.txt")], check=True)
         else:

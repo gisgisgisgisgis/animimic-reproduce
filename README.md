@@ -529,10 +529,17 @@ python -m pip check
 | `animimic: command not found` | 啟用正確環境，從 repo 執行 `python -m pip install -e '.[video]'` |
 | `CUDA unavailable` | 檢查 `nvidia-smi`、排程分配、CUDA_VISIBLE_DEVICES 與 CUDA PyTorch wheel |
 | PyTorch3D 編譯失敗 | 檢查 torch/torchvision、nvcc/toolkit、GCC 相容性；用 MAX_JOBS=1 降低記憶體 |
+| Wan 安裝 flash_attn 時顯示 `No module named 'torch'` | 更新程式後重跑 `03_install_pipeline.sh wan`；腳本會先裝建置工具，再以 `--no-build-isolation` 使用現有 PyTorch 建置 |
 | `FloatTetwild_bin` 找不到 | 完成 6.3 並設定 PATH 或 physics.tetwild_executable |
 | GPU OOM | 先用 LTX；降低 video.width/height（32 的倍數）、num_frames（8k+1） |
 | 權重下載空間不足 | 把 HF_HOME / TORCH_HOME 設到有空間的磁碟 |
 | source requirements 衝突 | 記錄錯誤與第三方 Git revisions；不要直接把固定版本全升到最新版 |
+
+`flash_attn` 的建置會載入 PyTorch；pip 的隔離建置環境可能找不到目前 Conda
+環境裡的 torch。Wan 安裝流程依 [FlashAttention 官方安裝方式](https://github.com/Dao-AILab/flash-attention#installation-and-features)
+停用 build isolation，先安裝 setuptools、wheel、packaging、psutil 與 ninja。
+遇到這個錯誤不需要重建環境。保留 `03` 的版本約束與 `MAX_JOBS` 設定，
+更新後直接重跑即可；若主機記憶體不足，可設定 `MAX_JOBS=1`。
 
 ## 方法設定
 
