@@ -401,7 +401,7 @@ joint 預覽與預設關閉的穩定化實驗，見 [Joint 預覽與設定](docs
 ```
 
 ETA 依目前階段已完成的迭代估算，不包含後續階段。較長的迭代會間隔顯示
-正在渲染或模擬的影格。FEM 會立即列出初始姿勢求解；內部 Newton、CG、
+正在渲染或模擬的影格。FEM 會立即列出初始姿勢求解；內部 Newton、稀疏線性求解、
 步長搜尋與反向傳播的 adjoint 求解也會間隔輸出目前迭代與殘差。
 這些是實際運算點的更新；單次 GPU 操作尚未完成時，可能暫時沒有新訊息。
 
@@ -548,10 +548,21 @@ python -m pip check
 | source requirements 衝突 | 記錄錯誤與第三方 Git revisions；不要直接把固定版本全升到最新版 |
 
 `03_install_pipeline.sh wan` 會先檢查目前環境能否載入 `flash_attn`；已可使用就沿用。
-若尚未安裝，會依目前 Python、CUDA PyTorch 與 C++ ABI，自動選取
-[FlashAttention 2.8.3.post2 官方 release](https://github.com/Dao-AILab/flash-attention/releases/tag/v2.8.3.post2)
-的 Linux x86_64 預編譯 wheel，與 Wan requirements 一起安裝，不用手動複製下載網址。
+若無法載入，會依目前 Python、CUDA PyTorch 與 C++ ABI 選取官方 Linux x86_64 wheel，
+只重裝 FlashAttention 並確認可載入，再安裝 Wan requirements。PyTorch 2.6／CUDA 12.4／
+ABI FALSE 選用 [2.7.4.post1](https://github.com/Dao-AILab/flash-attention/releases/tag/v2.7.4.post1)，
+避開 FlashAttention 2.8 wheel 已有人回報的 `c10::Error` 符號問題。
 這會避開 source build 找不到 torch，以及其 `os.rename` 跨檔案系統失敗的問題。
+Wan CLI 啟動時會載入 S2V 和 Animate 模組，因此安裝器也會補齊它們的匯入依賴，
+並執行 `generate.py --help` 檢查入口是否可用。既有環境遇到缺少 `decord` 時，
+可以只補啟動依賴，並沿用已下載的模型：
+
+```bash
+python -m pip install -c scripts/runtime-constraints.txt \
+  'decord==0.6.0' 'librosa>=0.10.2' 'peft==0.17.1' einops
+python third_party/Wan2.2/generate.py --help
+```
+
 如果官方沒有對應 wheel，安裝會明確失敗，不會自動轉成長時間的原始碼編譯。
 不需要重建環境；`03` 仍保留核心套件的版本約束。
 
@@ -563,9 +574,10 @@ temporal smoothness、joint regularization losses。
 RGB／mask／tracking／depth 使用逐影格 L2 norm 平均，depth 只正規化目標。
 關節正則化依非 root 參數 clipping 計算；從第一步就用完整目標，不再分三階段。
 論文未明訂的 N、norm 種類、bounds 與 lambda，見 [公式與實作假設](docs/paper-implementation-audit.md)。
-FEM 使用 fixed-corotated elasticity、backward Euler、Newton/CG、
+FEM 使用 fixed-corotated elasticity、backward Euler、稀疏 Newton、
 joint boundary conditions 與 implicit adjoint；Warp 計算能量，
-PyTorch 提供相同公式的導數與 Hessian-vector products。
+PyTorch 提供能量導數，解析 element Hessian 組裝後使用 SciPy 在 CPU 做稀疏 LU。
+每次材質迭代沿用前次模擬結果作為 Newton 初始猜測；adjoint 也使用稀疏求解。
 
 Adam 1e-3 是論文明載設定。其他未公開的超參數採用本專案 defaults：loss weights 1、
 25 個 sampled frames、Poisson ratio 0.45、normalized density 1、四個 substeps。

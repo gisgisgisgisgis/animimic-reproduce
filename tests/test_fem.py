@@ -7,6 +7,30 @@ from animimic.fem import (elastic_energy, matrix_free_step, volumes,
 
 
 class FEMTests(unittest.TestCase):
+    def test_analytic_element_hessian_matches_energy_derivative(self):
+        from animimic.fem import element_hessians
+        for scale in (1., .85, 1.2):
+            x = self.rest.clone()*scale
+            x[1, 1] += .1
+            e = torch.tensor([3.], dtype=torch.float64)
+            actual = element_hessians(x, self.rest, self.tets, e)[0]
+            expected = torch.autograd.functional.hessian(
+                lambda p: elastic_energy(p, self.rest, self.tets, e), x).reshape(12, 12)
+            torch.testing.assert_close(actual, expected, atol=1e-8, rtol=1e-8)
+
+    def test_warm_start_preserves_solution_and_material_gradient(self):
+        e = torch.tensor([3.], dtype=torch.float64, requires_grad=True)
+        reference = self.simulate(e)
+        gradient = torch.autograd.grad(reference[3, 2], e)[0]
+        target = self.rest.clone()
+        target[1, 0] = 1.1
+        warm, _ = matrix_free_step(self.rest, self.tets, self.mass, self.rest,
+            torch.zeros_like(self.rest), e, .1, self.fixed, target,
+            guess=reference.detach())
+        actual_gradient = torch.autograd.grad(warm[3, 2], e)[0]
+        torch.testing.assert_close(warm, reference)
+        torch.testing.assert_close(actual_gradient, gradient)
+
     def setUp(self):
         self.rest = torch.tensor([[0., 0, 0], [1., 0, 0], [0., 1, 0], [0., 0, 1]],
                                  dtype=torch.float64)
@@ -61,7 +85,7 @@ class FEMTests(unittest.TestCase):
         torch.testing.assert_close(actual, reference)
         torch.testing.assert_close(gradient, expected_gradient)
         self.assertTrue(any("Newton" in message and "gradient norm=" in message for message in messages))
-        self.assertTrue(any("CG" in message and "residual=" in message for message in messages))
+        self.assertTrue(any("sparse solve" in message and "residual=" in message for message in messages))
         self.assertTrue(any("backward adjoint" in message for message in messages))
 
     def test_initial_rigid_pose_moves_free_nodes_without_inversion(self):

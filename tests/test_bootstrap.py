@@ -12,8 +12,8 @@ ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location("bootstrap", ROOT/"scripts/bootstrap.py")
 bootstrap = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(bootstrap)
-WHEEL = ("https://github.com/Dao-AILab/flash-attention/releases/download/v2.8.3.post2/"
-         "flash_attn-2.8.3.post2+cu12torch2.6cxx11abiFALSE-cp311-cp311-linux_x86_64.whl")
+WHEEL = ("https://github.com/Dao-AILab/flash-attention/releases/download/v2.7.4.post1/"
+         "flash_attn-2.7.4.post1+cu12torch2.6cxx11abiFALSE-cp311-cp311-linux_x86_64.whl")
 
 
 class BootstrapTests(unittest.TestCase):
@@ -36,11 +36,12 @@ class BootstrapTests(unittest.TestCase):
             def run(command, **kwargs):
                 calls.append(command)
                 if command == [sys.executable, "-c", "import flash_attn"]:
-                    return subprocess.CompletedProcess(command, 0 if installed else 1)
+                    ready = installed or any(WHEEL in previous for previous in calls)
+                    return subprocess.CompletedProcess(command, 0 if ready else 1)
                 if not installed and "third_party/Wan2.2/requirements.txt" in command:
                     # Without the direct wheel, the upstream source downloader
                     # reaches os.rename and reproduces the reported EXDEV error.
-                    if WHEEL not in command:
+                    if not any(WHEEL in previous for previous in calls):
                         raise OSError(18, "Invalid cross-device link")
                 return subprocess.CompletedProcess(command, 0)
             previous = Path.cwd()
@@ -57,13 +58,18 @@ class BootstrapTests(unittest.TestCase):
                 os.chdir(previous)
             return calls
 
-    def test_missing_flash_attention_installs_direct_wheel_and_checks_import(self):
+    def test_missing_flash_attention_installs_direct_wheel_and_checks_cli(self):
         calls = self.run_wan(installed=False)
         install = next(c for c in calls if "third_party/Wan2.2/requirements.txt" in c)
         self.assertEqual(install[:4], [sys.executable, "-m", "pip", "install"])
-        self.assertIn(WHEEL, install)
-        self.assertTrue(any(c[1:3] == ["-c", "import flash_attn; print('FlashAttention:', flash_attn.__version__)"]
-                            for c in calls))
+        replacement = next(c for c in calls if WHEEL in c)
+        self.assertIn("--force-reinstall", replacement)
+        self.assertIn("--no-deps", replacement)
+        self.assertLess(calls.index(replacement), calls.index(install))
+        for dependency in ("decord==0.6.0", "librosa>=0.10.2", "peft==0.17.1", "einops"):
+            self.assertIn(dependency, install)
+        smoke = [sys.executable, "generate.py", "--help"]
+        self.assertGreater(calls.index(smoke), calls.index(install))
 
     def test_working_flash_attention_is_reused_without_download(self):
         calls = self.run_wan(installed=True)

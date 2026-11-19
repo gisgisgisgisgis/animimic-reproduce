@@ -28,11 +28,13 @@ def flash_attn_wheel_url():
         raise RuntimeError("The FlashAttention wheel installer requires Linux x86_64")
     if torch.version.cuda is None:
         raise RuntimeError("Install CUDA PyTorch before FlashAttention")
-    version = "2.8.3.post2"
     cuda = torch.version.cuda.split(".")[0]
     pytorch = ".".join(torch.__version__.split(".")[:2])
     python = f"cp{sys.version_info.major}{sys.version_info.minor}"
     abi = str(torch._C._GLIBCXX_USE_CXX11_ABI).upper()
+    # FA 2.8 wheels can fail to resolve c10 symbols on the supported cu124 stack.
+    version = ("2.7.4.post1" if (pytorch, torch.version.cuda, abi) == ("2.6", "12.4", "FALSE")
+               else "2.8.3.post2")
     wheel = f"flash_attn-{version}+cu{cuda}torch{pytorch}cxx11abi{abi}-{python}-{python}-linux_x86_64.whl"
     return f"https://github.com/Dao-AILab/flash-attention/releases/download/v{version}/{wheel}"
 
@@ -63,21 +65,26 @@ def main():
         if args.clone_only or name == "fTetWild":
             continue
         if name == "Wan2.2":
+            # generate.py imports the S2V and Animate modules even for TI2V.
+            # Install their import-time dependencies without their full toolchains.
             command = [sys.executable, "-m", "pip", "install", "--no-build-isolation", "-r",
-                       str(directory/"requirements.txt")]
+                       str(directory/"requirements.txt"), "decord==0.6.0",
+                       "librosa>=0.10.2", "peft==0.17.1", "einops"]
             available = subprocess.run([sys.executable, "-c", "import flash_attn"],
                                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             if available.returncode:
-                # Supply a wheel directly so pip never invokes flash_attn's
-                # setup.py downloader/os.rename across temporary/cache mounts.
+                # Force replacement even when pip already sees the same version.
+                # Keep PyTorch fixed so the wheel still matches after installation.
                 url = flash_attn_wheel_url()
                 print(f"Installing prebuilt FlashAttention: {url}", flush=True)
-                command.append(url)
+                subprocess.run([sys.executable, "-m", "pip", "install",
+                                "--force-reinstall", "--no-deps", url], check=True)
+                subprocess.run([sys.executable, "-c", "import flash_attn"], check=True)
             else:
                 print("Using installed FlashAttention", flush=True)
             subprocess.run(command, check=True)
-            subprocess.run([sys.executable, "-c",
-                            "import flash_attn; print('FlashAttention:', flash_attn.__version__)"], check=True)
+            subprocess.run([sys.executable, "generate.py", "--help"], cwd=directory,
+                           stdout=subprocess.DEVNULL, check=True)
         elif name == "alltracker":
             subprocess.run([sys.executable, "-m", "pip", "install", "-r",
                             str(directory/"requirements.txt")], check=True)
