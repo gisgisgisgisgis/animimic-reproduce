@@ -1,0 +1,28 @@
+# Wan TI2V-5B, five seconds. Motion constraints are included in the positive prompt.
+asset: horse_textured
+camera:
+  width: 768
+  height: 448
+  azimuth: 65
+  elevation: 5
+  distance: 1.5
+  lighting: unlit
+  srgb: true
+  use_texture: true
+video:
+  prompt: A single brown horse, matching the input image, remains in its original
+    place throughout one continuous five-second shot. The camera is locked and the
+    plain background and lighting remain constant. The entire horse stays inside the
+    frame. Its body proportions, coat markings, four distinct legs and four intact
+    hooves remain consistent throughout. The horse keeps its head and torso facing
+    the original direction. The front leg closest to the camera performs one small,
+    slow lift. Its knee flexes naturally and its intact hoof rises a short distance
+    above the ground. The hoof lowers smoothly back onto its original ground position.
+    The other three hooves stay planted throughout and the torso remains steady. The
+    lifting leg stays visually distinct from the other front leg. The shot ends with
+    all four hooves on the ground.
+  seed: 2026
+  sample_frames: 25
+  backend: wan
+  num_frames: 121
+  fps: 24
