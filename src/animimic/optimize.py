@@ -4,6 +4,7 @@ import torch
 
 from .core import save_history
 from .losses import normalize_depth, silhouette, smoothness, weighted_huber, masked_rgb
+from .losses import temporal_acceleration, stationary_track_weights
 from .rig import fk, lbs, pose_local
 from .rig import rotation_6d
 from .progress import Progress
@@ -57,26 +58,42 @@ def fit_joints(rig, supervision, renderer, output, config):
     parents = rig["parents"].tolist()
     # Root phase can change all scene-root transforms, including an inserted scene ancestor.
     roots = rig["parents"] < 0
+    # Only scene roots may translate by default; child offsets define bone lengths.
+    movable = torch.ones_like(roots) if config.get("optimize_joint_translations", False) else roots
+    times = supervision.get("frame_times", torch.arange(n, device=device)/24)
+    if len(times) != n or not torch.isfinite(times).all() or (times[1:] <= times[:-1]).any():
+        raise ValueError("Joint frame times must be finite and strictly increasing")
+    stationary = stationary_track_weights(supervision["tracks"],
+        supervision["visibility"]*supervision["confidence"], config.get("stationary_track_px", 2.))
+    weights = {"rotation_smooth": .01, "root_smooth": .1, "stationary": 1.,
+               **config.get("loss_weights", {})}
     lengths = rig["local"][:, :3, 3].norm(dim=-1).clamp_min(1e-4)
     translation_bound = lengths*config.get("max_translation_bone_fraction", .1)
     for phase_index, (phase, iterations) in enumerate(phases, 1):
         progress = Progress(f"joints {phase_index}/3 {phase}", iterations)
         for iteration in range(iterations):
             optimizer.zero_grad()
-            local = pose_local(rig["local"], rotation, translation)
+            effective_translation = translation*movable[None, :, None]
+            local = pose_local(rig["local"], rotation, effective_translation)
             world = fk(local, parents)
             vertices = lbs(rig["vertices"], rig["weights"], world, rig["inverse_bind"])
             losses = video_loss(vertices, rig, supervision, renderer, phase, progress)
+            matrices = rotation_6d(rotation)
+            losses["rotation_smooth"] = temporal_acceleration(matrices, times)
+            losses["root_smooth"] = temporal_acceleration(world[:, roots, :3, 3], times)
+            points = (vertices[:, rig["faces"][supervision["triangles"]]]
+                      * supervision["barycentric"][None, :, :, None]).sum(-2)
+            # Reliable stationary 2D points disambiguate unwanted depth motion.
+            # Moving or occluded tracks do not impose a planted-foot assumption.
+            losses["stationary"] = weighted_huber(points/.01, points[:1].expand_as(points)/.01, stationary)
             losses["regularization"] = (
                 (translation[:, ~roots].abs()-translation_bound[None, ~roots, None]).clamp_min(0).square().mean()
                 if (~roots).any() else translation.sum()*0)
             if (~roots).any():
-                matrices = rotation_6d(rotation[:, ~roots])
-                cosine = ((matrices.diagonal(dim1=-2, dim2=-1).sum(-1)-1)/2).clamp(-1+1e-6, 1-1e-6)
+                cosine = ((matrices[:, ~roots].diagonal(dim1=-2, dim2=-1).sum(-1)-1)/2).clamp(-1+1e-6, 1-1e-6)
                 angle = torch.acos(cosine)
                 bound = config.get("max_rotation_deg", 75)*np.pi/180
                 losses["regularization"] = losses["regularization"] + (angle-bound).clamp_min(0).square().mean()
-            weights = config.get("loss_weights", {})
             loss = sum(weights.get(k, 1)*v for k, v in losses.items())
             if not torch.isfinite(loss):
                 raise RuntimeError("Nonfinite joint objective")
@@ -92,8 +109,9 @@ def fit_joints(rig, supervision, renderer, output, config):
             progress.advance(float(loss.detach()))
         save_history(output/"joint_losses.json", history)
         np.savez_compressed(output/"joint_checkpoint.npz",
-                            rotation=rotation.detach().cpu(), translation=translation.detach().cpu())
+                            rotation=rotation.detach().cpu(), translation=(translation*movable[None, :, None]).detach().cpu())
     with torch.no_grad():
+        translation = translation*movable[None, :, None]
         local = pose_local(rig["local"], rotation, translation)
         world = fk(local, parents)
         vertices = lbs(rig["vertices"], rig["weights"], world, rig["inverse_bind"])

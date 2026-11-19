@@ -380,6 +380,17 @@ preflight 會檢查完整 pipeline 的套件、repo、CUDA 與 fTetWild；
 animimic run --config configs/horse-ltx.yaml
 ```
 
+若要先檢查 joint、暫時不跑 FEM：
+
+```bash
+bash scripts/08_run_pipeline.sh configs/horse-textured-ltx-5s.yaml --until-stage joints
+# 原影片使用 Wan 時，加上 --video-backend wan，保持相同 backend。
+```
+
+結果會在 `runs/<asset>/<run-id>/joint-review/`，包含並排比較、左右斜側面與 GLB。
+joint 預覽會以來源影片 fps 插值輸出，避免五秒僅 25 幀的低幀率跳動。
+骨長保持、關節平滑與靜止追蹤點約束，見 [Joint 穩定與檢查](docs/joint-stability.md)。
+
 終端機會列出目前階段、是否使用快取，以及各最佳化階段的迭代進度，例如：
 
 ```text
@@ -547,6 +558,7 @@ python -m pip check
 
 Joint stage 使用 6D rotation、FK/LBS 與 RGB、mask、tracking、normalized depth、
 temporal smoothness、joint regularization losses。
+預設保持子關節 offset，並以實際時間計算關節加速度、約束可信靜止點的 3D 漂移。
 FEM 使用 fixed-corotated elasticity、backward Euler、Newton/CG、
 joint boundary conditions 與 implicit adjoint；Warp 計算能量，
 PyTorch 提供相同公式的導數與 Hessian-vector products。

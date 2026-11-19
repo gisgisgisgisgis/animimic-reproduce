@@ -89,6 +89,8 @@ def previews(directory, rig, joints, physics, renderer, reference, fps):
     import torch
     from .render import Renderer
     for label, trajectory in (("joint", joints), ("physics", physics)):
+        if trajectory is None:
+            continue
         for azimuth in (0, -45, 45):
             view = renderer if azimuth == 0 else Renderer(
                 rig["vertices"].device,

@@ -93,7 +93,7 @@ def main():
     run = sub.add_parser("run")
     run.add_argument("--config", required=True)
     run.add_argument("--from-stage")
-    run.add_argument("--until-stage", choices=("render", "video"))
+    run.add_argument("--until-stage", choices=("render", "video", "joints"))
     run.add_argument("--force-stage")
     run.add_argument("--video-backend", choices=("wan", "ltx"))
     videos = sub.add_parser("video")

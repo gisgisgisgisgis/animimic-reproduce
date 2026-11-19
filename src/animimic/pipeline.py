@@ -24,8 +24,8 @@ def repo_revision(path):
 
 
 def run(config, force_stage=None, from_stage=None, until_stage=None):
-    if until_stage not in (None, "render", "video"):
-        raise ValueError("until_stage must be render or video")
+    if until_stage not in (None, "render", "video", "joints"):
+        raise ValueError("until_stage must be render, video or joints")
     if from_stage and until_stage and STAGES.index(from_stage) > STAGES.index(until_stage):
         raise ValueError("--from-stage cannot be after --until-stage")
     print("[pipeline] Loading dependencies...", flush=True)
@@ -37,7 +37,7 @@ def run(config, force_stage=None, from_stage=None, until_stage=None):
     from .video_backends import generate_video, backend_name
     from .optimize import tensors, fit_joints
     from .render import Renderer
-    from .export import export_glb, previews
+    from .export import previews
     from .evaluate import metrics
 
     device = config.get("device", "cuda")
@@ -147,7 +147,6 @@ def run(config, force_stage=None, from_stage=None, until_stage=None):
         print(f"[review] Contact sheet: {run_dir/'video-review.jpg'}", flush=True)
         print("[review] Stopped after video. Check the result before running later stages.", flush=True)
         return run_dir
-    from .physics import tetrahedralize, fit_material
     def supervise(out):
         frames, indices = sample_video(generated/"reference.mp4", out/"frames",
             video_config.get("sample_frames", 25), renderer.size[::-1])
@@ -185,16 +184,28 @@ def run(config, force_stage=None, from_stage=None, until_stage=None):
     target = {k: torch.as_tensor(v, device=device,
               dtype=torch.long if k in ("triangles", "indices") else torch.float32)
               for k, v in target_raw.items() if k != "depth_maps"}
+    from .joint_review import source_fps, write_joint_review
+    video_fps = source_fps(generated/"reference.mp4")
+    indices = target_raw["indices"]
+    target["frame_times"] = torch.as_tensor(indices/video_fps, device=device, dtype=torch.float32)
     joint_dir = stage("joints", config.get("joints", {}),
-        {"rig": file_hash(prepared/"rig.npz"), "supervision": file_hash(supervised/"supervision.npz")},
+        {"rig": file_hash(prepared/"rig.npz"), "supervision": file_hash(supervised/"supervision.npz"),
+         "fps": video_fps, "camera": camera},
         lambda out: fit_joints(rig, target, renderer, out, config.get("joints", {})),
         ["rig.py", "optimize.py", "losses.py", "render.py"])
+    joint = dict(np.load(joint_dir/"joint_trajectory.npz"))
+    if until_stage == "joints":
+        review_dir = run_dir/"joint-review"
+        write_joint_review(review_dir, rig, joint["local"], renderer,
+                           generated/"reference.mp4", indices, video_fps)
+        print(f"[review] Joint animation: {review_dir/'joint_0.mp4'}", flush=True)
+        print("[review] Stopped after joints; no tetrahedralization or FEM was run.", flush=True)
+        return run_dir
+    from .physics import tetrahedralize, fit_material
     tet_dir = stage("tetrahedralize", config.get("physics", {}),
         {"rig": file_hash(prepared/"rig.npz")},
         lambda out: tetrahedralize(raw, out, config.get("physics", {})), ["physics.py"])
-    joint = dict(np.load(joint_dir/"joint_trajectory.npz"))
-    indices = target_raw["indices"]
-    dt = float(np.diff(indices).mean())/video_config.get("fps", 24)
+    dt = float(np.diff(indices).mean())/video_fps
     physics_dir = stage("physics", config.get("physics", {}),
         {"tet": file_hash(tet_dir/"tetrahedral.npz"), "joint": file_hash(joint_dir/"joint_trajectory.npz"),
          "supervision": file_hash(supervised/"supervision.npz")},
@@ -202,7 +213,8 @@ def run(config, force_stage=None, from_stage=None, until_stage=None):
             torch.tensor(joint["world"], device=device), target, renderer, out,
             config.get("physics", {}), dt), ["physics.py", "fem.py", "optimize.py", "losses.py"])
     def export(out):
-        export_glb(out/"joint.glb", raw, joint["local"], 1/dt)
+        write_joint_review(out, rig, joint["local"], renderer,
+                           generated/"reference.mp4", indices, video_fps)
         physical = np.load(physics_dir/"physics_trajectory.npz")["vertices"]
         trajectories = {
             "initial": rig["vertices"][None].expand(len(joint["vertices"]), -1, -1),
@@ -211,11 +223,13 @@ def run(config, force_stage=None, from_stage=None, until_stage=None):
         report = {name: metrics(value, rig, target, renderer)
                   for name, value in trajectories.items()}
         save_json(out/"metrics.json", report)
-        previews(out, rig, torch.tensor(joint["vertices"], device=device),
+        previews(out, rig, None,
                  torch.tensor(physical, device=device), renderer,
                  (target_raw["frames"]*255).astype(np.uint8), 1/dt)
-        return ["joint.glb", "metrics.json"]+[p.name for p in out.glob("*.mp4")]
+        return ["joint.glb", "joint-review.json", "metrics.json"]+[p.name for p in out.glob("*.mp4")]
     stage("export", {}, {"joint": file_hash(joint_dir/"joint_trajectory.npz"),
-        "physics": file_hash(physics_dir/"physics_trajectory.npz")}, export,
-        ["export.py", "evaluate.py", "render.py"])
+        "physics": file_hash(physics_dir/"physics_trajectory.npz"),
+        "video": file_hash(generated/"reference.mp4"), "fps": video_fps, "camera": camera,
+        "supervision": file_hash(supervised/"supervision.npz")}, export,
+        ["export.py", "evaluate.py", "render.py", "joint_review.py", "rig.py"])
     return run_dir

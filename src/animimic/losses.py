@@ -34,6 +34,26 @@ def smoothness(vertices):
     return loss
 
 
+def temporal_acceleration(value, times):
+    """Acceleration in seconds, rather than differences per sampled frame."""
+    if len(value) < 3:
+        return value.sum()*0
+    dt = (times[1:]-times[:-1]).reshape(-1, *([1]*(value.ndim-1)))
+    velocity = (value[1:]-value[:-1])/dt
+    acceleration = 2*(velocity[1:]-velocity[:-1])/(dt[1:]+dt[:-1])
+    return acceleration.square().mean()
+
+
+def stationary_track_weights(tracks, weight, threshold=2.):
+    """Anchor only tracks stationary over the clip with reliable support."""
+    reliable = weight > .5
+    displacement = (tracks-tracks[:1]).norm(dim=-1)
+    displacement = torch.where(reliable, displacement, torch.zeros_like(displacement))
+    stable = (reliable[0] & (reliable.float().mean(0) >= .8)
+              & (displacement.amax(0) <= threshold))
+    return torch.where(reliable & stable[None], weight, torch.zeros_like(weight))
+
+
 def normalize_depth(depth, valid):
     result = torch.zeros_like(depth)
     for i in range(len(depth)):
