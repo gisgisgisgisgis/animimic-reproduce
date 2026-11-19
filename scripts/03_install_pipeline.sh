@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 source "$(dirname -- "${BASH_SOURCE[0]}")/_common.sh"
-show_help "${1:-}" "bash scripts/03_install_pipeline.sh [ltx|wan]: install supervision, PyTorch3D and FEM dependencies. Requires nvcc 12.4."
+show_help "${1:-}" "bash scripts/03_install_pipeline.sh [ltx|wan]: install pipeline dependencies. Wan automatically installs a matching prebuilt FlashAttention wheel if needed. Requires nvcc 12.4."
 backend="${1:-ltx}"
 [[ "$backend" == ltx || "$backend" == wan ]] || die "Backend must be ltx or wan."
 require_cuda
