@@ -4,7 +4,7 @@
 
 | backend | 模型 | 建議起始設定 |
 | --- | --- | --- |
-| `wan` | Wan 2.2 TI2V 5B | 原本的 1280×704、121 幀 |
+| `wan` | Wan 2.2 TI2V 5B | 依輸入圖比例、最多 1280×704 像素，121 幀；需 flash-attn |
 | `ltx` | 原始 LTX-Video 2B DiT | 512×288、49 幀、30 steps、CPU offload |
 
 LTX 的 transformer 比 Wan 5B 小，低解析度與較短片段也能降低負擔。

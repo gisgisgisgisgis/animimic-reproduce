@@ -106,6 +106,8 @@ def fit_material(rig, data, joint_world, target, renderer, directory, config, dt
     # slightly changed moduli, so the previous iteration's solution of each
     # step is a close Newton starting point. It does not change the solution.
     previous = {}
+    failures = []
+    save_json(directory/"physics_failures.json", failures)
     for level, iterations in enumerate([config.get("coarse_iterations", 100),
                                          config.get("fine_iterations", 100)]):
         if level:
@@ -126,11 +128,9 @@ def fit_material(rig, data, joint_world, target, renderer, directory, config, dt
         log_e = initial.clone().requires_grad_()
         optimizer = torch.optim.Adam([log_e], lr=config.get("learning_rate", 1e-3))
         progress = Progress(f"physics {level+1}/2 {'fine' if level else 'coarse'}", iterations)
-        for iteration in range(iterations):
-            optimizer.zero_grad()
-            substeps = config.get("substeps", 4)
-            max_halvings = config.get("max_step_halvings", 8)
-            progress.detail(f"iteration {iteration+1}/{iterations} | initial pose solve", force=True)
+        substeps = config.get("substeps", 4)
+        max_halvings = config.get("max_step_halvings", 8)
+        def simulate():
             def initial_report(message):
                 progress.detail(f"initial pose | {message}")
             try:
@@ -157,8 +157,40 @@ def fit_material(rig, data, joint_world, target, renderer, directory, config, dt
                         raise FEMConvergenceError(
                             f"Frame {frame+1}/{len(targets)}, substep {step+1}/{substeps}: {error}") from error
                 states.append(x)
-            trajectory = torch.stack(states)
-            trajectory_log_e = log_e.detach().clone()
+            return torch.stack(states)
+        # Moduli of the last iteration whose simulation succeeded at this level.
+        good = None
+        level_failures = 0
+        for iteration in range(iterations):
+            optimizer.zero_grad()
+            progress.detail(f"iteration {iteration+1}/{iterations} | initial pose solve", force=True)
+            failure = None
+            try:
+                simulated = simulate()
+            except FEMConvergenceError as error:
+                # An optimizer step can soften a region until the prescribed
+                # motion collapses it. Before any success there is nothing to
+                # fall back to, so the error stands.
+                if good is None:
+                    raise
+                failure = str(error)
+            if failure is not None:
+                level_failures += 1
+                failures.append({"level": level, "iteration": iteration, "error": failure})
+                save_json(directory/"physics_failures.json", failures)
+                with torch.no_grad():
+                    log_e.copy_(good)
+                for group in optimizer.param_groups:
+                    group["lr"] *= .5
+                stop = level_failures >= config.get("max_material_failures", 3)
+                progress.detail(f"FEM failed ({failure}); restored last simulated moduli, "
+                                f"lr={optimizer.param_groups[0]['lr']:.3g}"
+                                + ("; ending this level" if stop else ""), force=True)
+                if stop:
+                    break
+                continue
+            trajectory = simulated
+            trajectory_log_e = good = log_e.detach().clone()
             surface = (trajectory[:, embedding]*bary[None, ..., None]).sum(-2).float()
             losses = video_loss(surface, rig, target, renderer, progress=progress)
             loss = sum(losses.values())
@@ -180,4 +212,4 @@ def fit_material(rig, data, joint_world, target, renderer, directory, config, dt
         vertices=surface.detach().cpu(), tetrahedra=trajectory.detach().cpu(),
         log_e=trajectory_log_e.cpu(), groups=groups.cpu())
     return ["physics_trajectory.npz", "material_checkpoint.npz", "physics_losses.json",
-            "physics_losses.csv"]
+            "physics_losses.csv", "physics_failures.json"]

@@ -1,6 +1,5 @@
 """Frozen pretrained inference adapters; model results are cached by the pipeline."""
 import gc
-import subprocess
 import sys
 from pathlib import Path
 
@@ -16,22 +15,77 @@ def release():
 
 
 def generate_video(image, output, config):
-    """Use official Wan TI2V entrypoint (5B does not use CLIPVisionModel)."""
+    """Wan 2.2 TI2V-5B image-to-video through the official `wan` package.
+
+    Calls WanTI2V directly rather than generate.py, which has no negative
+    prompt option and fixes the remaining sampling settings. Output size
+    follows the input image's aspect ratio within `max_area` pixels.
+    """
     repo = Path(config.get("repo", "third_party/Wan2.2")).resolve()
     checkpoint = Path(config.get("checkpoint", "weights/Wan2.2-TI2V-5B")).resolve()
-    if not (repo/"generate.py").is_file():
+    if not (repo/"wan"/"textimage2video.py").is_file():
         raise RuntimeError(f"Install official Wan2.2 repository at {repo}")
-    subprocess.run([
-        sys.executable, str(repo/"generate.py"), "--task", "ti2v-5B",
-        "--size", "1280*704", "--ckpt_dir", str(checkpoint),
-        "--offload_model", "True", "--convert_model_dtype", "--t5_cpu",
-        "--image", str(Path(image).resolve()), "--prompt", config["prompt"],
-        "--base_seed", str(config.get("seed", 2026)),
-        "--frame_num", str(config.get("num_frames", 121)),
-        "--save_file", str(Path(output).resolve()),
-    ], cwd=repo, check=True)
+    if not checkpoint.is_dir():
+        raise RuntimeError(f"Download Wan2.2-TI2V-5B weights to {checkpoint}")
+    if not torch.cuda.is_available():
+        raise RuntimeError("Wan local generation requires an accessible CUDA GPU")
+    if str(repo) not in sys.path:
+        sys.path.insert(0, str(repo))
+    import imageio
+    from wan import WanTI2V
+    from wan.configs import WAN_CONFIGS
+
+    settings = WAN_CONFIGS["ti2v-5B"]
+    pipeline = None
+    try:
+        pipeline = WanTI2V(config=settings, checkpoint_dir=str(checkpoint), device_id=0,
+                           t5_cpu=config.get("t5_cpu", True),
+                           convert_model_dtype=config.get("convert_model_dtype", True))
+        with Image.open(image) as source:
+            conditioning = source.convert("RGB")
+        video = pipeline.generate(
+            config["prompt"], img=conditioning,
+            max_area=config.get("max_area", 704*1280),
+            frame_num=config.get("num_frames", settings.frame_num),
+            shift=config.get("shift", settings.sample_shift),
+            sample_solver=config.get("solver", "unipc"),
+            sampling_steps=config.get("num_inference_steps", settings.sample_steps),
+            guide_scale=config.get("guidance_scale", settings.sample_guide_scale),
+            # An empty negative prompt selects Wan's built-in default.
+            n_prompt=config.get("negative_prompt", ""),
+            seed=config.get("seed", 2026),
+            offload_model=config.get("offload", True))
+        frames = ((video.clamp(-1, 1)+1)*127.5).round().to(torch.uint8)
+        frames = restore_wan_framing(frames.permute(1, 2, 3, 0).cpu().numpy(), conditioning)
+        Path(output).parent.mkdir(parents=True, exist_ok=True)
+        with imageio.get_writer(str(output), fps=config.get("fps", settings.sample_fps),
+                                codec="libx264", quality=8, macro_block_size=1) as writer:
+            for frame in frames:
+                writer.append_data(frame)
+    finally:
+        del pipeline
+        release()
     if not Path(output).is_file():
         raise RuntimeError("Wan did not produce reference video")
+
+
+def restore_wan_framing(frames, image):
+    """Undo Wan's center crop so frames cover the conditioning image's view.
+
+    Wan scales the image by max(ow/iw, oh/ih) and center-crops it to its
+    latent grid (e.g. 768x448 -> 1216x736 drops ~14 input pixels per side).
+    Resizing such frames back to the render size would stretch the subject.
+    The cropped margins are filled from the equally scaled conditioning
+    image, which is exact for the static background framing the subject.
+    """
+    height, width = frames.shape[1:3]
+    scale = max(width/image.width, height/image.height)
+    canvas = np.asarray(image.convert("RGB").resize(
+        (round(image.width*scale), round(image.height*scale)), Image.LANCZOS))
+    x1, y1 = (canvas.shape[1]-width)//2, (canvas.shape[0]-height)//2
+    restored = np.broadcast_to(canvas, (len(frames),)+canvas.shape).copy()
+    restored[:, y1:y1+height, x1:x1+width] = frames
+    return restored
 
 
 def sample_video(path, output, count=25, size=(512, 288)):

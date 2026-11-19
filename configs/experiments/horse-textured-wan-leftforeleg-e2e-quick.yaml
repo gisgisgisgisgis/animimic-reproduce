@@ -1,0 +1,31 @@
+reference_video: runs/horse_textured/wan-leftforeleg/reference-framed.mp4
+asset: horse_textured
+camera:
+  width: 768
+  height: 448
+  azimuth: 65
+  elevation: 5
+  distance: 1.5
+  lighting: unlit
+  srgb: true
+  use_texture: true
+video:
+  backend: wan
+  prompt: The brown horse stands still and slowly lifts its left front leg, bending
+    the knee so the hoof rises off the ground, holds it up briefly, then places the
+    hoof back down on the same spot. The rest of the body stays still and in the same
+    place. The same horse keeps consistent coat markings and proportions. The camera
+    and plain background stay fixed throughout this continuous five-second shot.
+  negative_prompt: second horse, duplicate animal, walking, running, sliding hooves,
+    drifting body, camera movement, camera shake, pan, zoom, orbit, camera cuts, frozen
+    pose, still image, missing legs, extra legs, distorted anatomy, melting body,
+    changing markings, changing background, flicker
+  seed: 2026
+  num_frames: 121
+  fps: 24
+  sample_frames: 25
+  num_inference_steps: 50
+  guidance_scale: 5.0
+physics:
+  coarse_iterations: 15
+  fine_iterations: 10

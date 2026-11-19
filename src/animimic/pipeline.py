@@ -109,14 +109,12 @@ def run(config, force_stage=None, from_stage=None, until_stage=None):
         with torch.no_grad():
             image, mask = renderer(rig["vertices"], rig["faces"], rig["colors"])
         picture = Image.fromarray((image.clamp(0, 1).cpu().numpy()*255).astype(np.uint8))
-        # Keep the legacy Wan image size; LTX uses the native render without a
-        # redundant enlargement and resize back down.
-        if backend_name(config["video"]) == "wan":
-            picture = picture.resize((1280, 704))
+        # Both backends take the native render: Wan sizes its output from the
+        # image's aspect ratio, and its center crop is undone after sampling.
         picture.save(out/"canonical.png")
         np.save(out/"mask.npy", mask.cpu().numpy())
         return ["canonical.png", "mask.npy"]
-    render_settings = camera if backend_name(config["video"]) == "wan" else {**camera, "native_image": True}
+    render_settings = {**camera, "native_image": True}
     rendered = stage("render", render_settings, {"rig": file_hash(prepared/"rig.npz")},
                      render, ["render.py"])
     shutil.copy2(rendered/"canonical.png", run_dir/"canonical.png")

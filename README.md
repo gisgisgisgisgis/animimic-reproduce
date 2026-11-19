@@ -428,7 +428,7 @@ animimic run --config configs/fox.yaml
 
 `huggingface-cli` 由此環境的 huggingface-hub 套件提供。
 需要另一個權重／repo 路徑時，可修改 YAML 的 `video.checkpoint`、
-`video.repo`。預設 Wan 是 1280×704、121 幀，使用 model offload 與 CPU T5。
+`video.repo`。預設 Wan 依輸入圖比例輸出、面積上限 1280×704（`video.max_area`），121 幀、50 steps、guidance 5，使用 model offload 與 CPU T5；`negative_prompt`、`num_inference_steps`、`guidance_scale`、`shift` 都可在 YAML 設定。
 
 也能用 CLI 切換：
 
