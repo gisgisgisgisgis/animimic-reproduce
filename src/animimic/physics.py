@@ -102,6 +102,10 @@ def fit_material(rig, data, joint_world, target, renderer, directory, config, dt
     targets = torch.einsum("tvab,vb->tva", transforms[:, owner], homogeneous)[..., :3]
     history = []
     trajectory = None
+    # Each optimization iteration re-simulates the same boundary motion with
+    # slightly changed moduli, so the previous iteration's solution of each
+    # step is a close Newton starting point. It does not change the solution.
+    previous = {}
     for level, iterations in enumerate([config.get("coarse_iterations", 100),
                                          config.get("fine_iterations", 100)]):
         if level:
@@ -131,9 +135,10 @@ def fit_material(rig, data, joint_world, target, renderer, directory, config, dt
                 progress.detail(f"initial pose | {message}")
             try:
                 x, velocity = initial_state(rest, tets, mass, log_e[groups], dt/substeps,
-                    fixed, targets[0], max_halvings, initial_report)
+                    fixed, targets[0], max_halvings, initial_report, previous.get("initial"))
             except FEMConvergenceError as error:
                 raise FEMConvergenceError(f"Initial pose: {error}") from error
+            previous["initial"] = x.detach()
             states = [x]
             for frame in range(1, len(targets)):
                 progress.detail(f"FEM simulation frame {frame+1}/{len(targets)}")
@@ -146,7 +151,8 @@ def fit_material(rig, data, joint_world, target, renderer, directory, config, dt
                     try:
                         x, velocity = adaptive_step(rest, tets, mass, x, velocity,
                             log_e[groups], dt/substeps, fixed, boundary,
-                            max_halvings, report)
+                            max_halvings, report, previous.get((frame, step)))
+                        previous[(frame, step)] = x.detach()
                     except FEMConvergenceError as error:
                         raise FEMConvergenceError(
                             f"Frame {frame+1}/{len(targets)}, substep {step+1}/{substeps}: {error}") from error

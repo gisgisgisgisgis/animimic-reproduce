@@ -61,7 +61,7 @@ class FEMTests(unittest.TestCase):
         torch.testing.assert_close(actual, reference)
         torch.testing.assert_close(gradient, expected_gradient)
         self.assertTrue(any("Newton" in message and "gradient norm=" in message for message in messages))
-        self.assertTrue(any("CG" in message and "residual=" in message for message in messages))
+        self.assertTrue(any("sparse solve" in message and "residual=" in message for message in messages))
         self.assertTrue(any("backward adjoint" in message for message in messages))
 
     def test_initial_rigid_pose_moves_free_nodes_without_inversion(self):
