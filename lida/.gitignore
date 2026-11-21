@@ -1,0 +1,19 @@
+.DS_Store
+__pycache__/
+*.pyc
+*.egg-info/
+.pytest_cache/
+.venv/
+third_party/
+outputs/
+presentation/
+__tracked_surface.stl
+*.npz
+# data/ holds the inputs and prepared sequences (frames, masks, tracks, depth, rigs): rebuilt locally.
+data/*
+!data/paper_refs/
+data/paper_refs/*
+!data/paper_refs/README.md
+!data/hf_*/
+data/hf_*/*
+!data/hf_*/CREDIT.md

@@ -1,0 +1,10 @@
+numpy<2
+scipy
+trimesh
+pygltflib
+pillow
+imageio
+imageio-ffmpeg
+pytest
+pyvista
+pytetwild

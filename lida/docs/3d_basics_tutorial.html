@@ -1,0 +1,923 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>從 Mesh 到 Skinning</title>
+<style>
+:root {
+  --bg: #f6f5f1; --surface: #ffffff; --surface-2: #efede7; --text: #1c1c1f; --text-2: #4f4f57; --muted: #85858d;
+  --line: #dcd9d1; --wire: rgba(30,30,40,.28); --accent: #2f6fdb; --accent-2: #d9772b; --good: #1d8655; --bad: #c8372d;
+  --code-bg: #f1efe9; --hl: #fff4d6; --tube: #ffffff;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #131315; --surface: #1c1c20; --surface-2: #26262c; --text: #ececf1; --text-2: #b6b6bf; --muted: #84848e;
+    --line: #34343b; --wire: rgba(230,230,240,.22); --accent: #6ea2ff; --accent-2: #f2a35e; --good: #4cc38a; --bad: #ff6b5e;
+    --code-bg: #24242a; --hl: #3a3320; --tube: #565663;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #131315; --surface: #1c1c20; --surface-2: #26262c; --text: #ececf1; --text-2: #b6b6bf; --muted: #84848e;
+  --line: #34343b; --wire: rgba(230,230,240,.22); --accent: #6ea2ff; --accent-2: #f2a35e; --good: #4cc38a; --bad: #ff6b5e;
+  --code-bg: #24242a; --hl: #3a3320; --tube: #565663;
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0; background: var(--bg); color: var(--text);
+  font: 16px/1.75 -apple-system, BlinkMacSystemFont, "PingFang TC", "Noto Sans TC", "Microsoft JhengHei", sans-serif;
+}
+main { max-width: 880px; margin: 0 auto; padding: 24px 16px 80px; }
+header.top { padding: 28px 0 8px; }
+h1 { font-size: 30px; line-height: 1.3; margin: 0 0 6px; letter-spacing: .01em; }
+h2 { font-size: 23px; margin: 56px 0 10px; padding-top: 8px; border-top: 1px solid var(--line); }
+h3 { font-size: 18px; margin: 28px 0 6px; }
+p, li { color: var(--text); }
+.sub { color: var(--text-2); margin: 0; }
+.muted { color: var(--muted); font-size: 14px; }
+a { color: var(--accent); }
+code, .mono { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: .88em; background: var(--code-bg); padding: 1px 5px; border-radius: 4px; }
+.eq {
+  font-family: "Cambria Math", "STIX Two Math", "Times New Roman", serif; font-size: 19px; text-align: center;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; margin: 12px 0;
+  overflow-x: auto; white-space: nowrap;
+}
+.eq small { font-family: inherit; font-size: 14px; color: var(--muted); display: block; white-space: normal; margin-top: 4px; }
+nav.toc { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 12px 16px; margin: 18px 0 8px; }
+nav.toc ol { margin: 0; padding-left: 22px; columns: 2; column-gap: 28px; }
+nav.toc li { break-inside: avoid; font-size: 15px; }
+@media (max-width: 560px) { nav.toc ol { columns: 1; } h1 { font-size: 25px; } .eq { font-size: 16px; } }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; margin: 14px 0; }
+.ours { border-left: 4px solid var(--accent-2); background: var(--surface); border-radius: 0 10px 10px 0; padding: 10px 14px; margin: 14px 0; }
+.ours b.tag { color: var(--accent-2); }
+.key { border-left: 4px solid var(--accent); background: var(--surface); border-radius: 0 10px 10px 0; padding: 10px 14px; margin: 14px 0; }
+.demo { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 14px; margin: 18px 0; }
+.demo .title { font-weight: 600; margin-bottom: 4px; }
+.demo .hint { color: var(--muted); font-size: 14px; margin-bottom: 10px; }
+canvas { display: block; width: 100%; background: var(--surface-2); border-radius: 10px; }
+canvas.drag { touch-action: none; cursor: grab; }
+.two { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+@media (max-width: 620px) { .two { grid-template-columns: 1fr; } }
+.controls { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; margin-top: 10px; font-size: 15px; }
+.controls label { display: inline-flex; align-items: center; gap: 8px; }
+.controls input[type=range] { width: 150px; accent-color: var(--accent); }
+.controls .val { font-family: "SF Mono", Menlo, monospace; font-size: 13px; color: var(--text-2); min-width: 48px; }
+button {
+  font: inherit; font-size: 14px; color: var(--text); background: var(--surface-2); border: 1px solid var(--line);
+  border-radius: 8px; padding: 5px 12px; cursor: pointer;
+}
+button:hover { border-color: var(--accent); }
+button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+.stats { font-family: "SF Mono", Menlo, monospace; font-size: 13px; color: var(--text-2); background: var(--surface-2); border-radius: 8px; padding: 8px 10px; margin-top: 10px; line-height: 1.6; overflow-x: auto; }
+.stats b { color: var(--text); }
+table { border-collapse: collapse; width: 100%; font-size: 15px; margin: 12px 0; }
+th, td { border-bottom: 1px solid var(--line); padding: 7px 8px; text-align: left; vertical-align: top; }
+th { color: var(--text-2); font-weight: 600; background: var(--surface-2); }
+.tablewrap { overflow-x: auto; }
+.pipe { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 14px 0; }
+.pipe .box { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 7px 11px; font-size: 14px; text-align: center; }
+.pipe .box b { display: block; font-size: 15px; }
+.pipe .box.loss { border-color: var(--bad); }
+.pipe .arr { color: var(--muted); font-size: 18px; }
+.back { font-size: 14px; color: var(--bad); margin-top: -4px; }
+.quiz .q { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; margin: 12px 0; }
+.quiz .q p { margin: 0 0 8px; font-weight: 600; }
+.quiz .opts { display: flex; flex-direction: column; gap: 6px; }
+.quiz .opts button { text-align: left; }
+.quiz .opts button.right { border-color: var(--good); background: color-mix(in srgb, var(--good) 14%, var(--surface)); }
+.quiz .opts button.wrong { border-color: var(--bad); background: color-mix(in srgb, var(--bad) 12%, var(--surface)); }
+.quiz .exp { display: none; margin-top: 8px; font-size: 15px; color: var(--text-2); }
+.quiz .q.done .exp { display: block; }
+.legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 13px; color: var(--text-2); margin-top: 6px; }
+.legend i { display: inline-block; width: 12px; height: 12px; border-radius: 3px; vertical-align: -1px; margin-right: 4px; }
+#themebtn { position: fixed; right: 14px; top: 12px; z-index: 5; font-size: 13px; padding: 4px 10px; }
+.foot { margin-top: 60px; color: var(--muted); font-size: 14px; }
+</style>
+</head>
+<body>
+<button id="themebtn" title="切換深色／淺色">◐ 主題</button>
+<main>
+<header class="top">
+  <h1>從 Mesh 到 Skinning：3D 動畫的電腦科學基礎</h1>
+  <p class="sub">配合 AnimaMimic 重現專案的入門教材。每一節先講定義和數學，再給一個可以拖、可以調的小實驗，最後對應到我們程式裡的哪個檔案。</p>
+</header>
+
+<nav class="toc">
+  <ol>
+    <li><a href="#overview">全貌：一隻 3D 動物＝幾個陣列</a></li>
+    <li><a href="#mesh">Mesh：用三角形逼近曲面</a></li>
+    <li><a href="#bary">重心座標：三角形內的內插</a></li>
+    <li><a href="#texture">Texture 與 UV 參數化</a></li>
+    <li><a href="#render">渲染與可微分渲染</a></li>
+    <li><a href="#skeleton">Skeleton 與正向運動學</a></li>
+    <li><a href="#weights">Skin weights</a></li>
+    <li><a href="#lbs">Skinning（LBS）與表面拉扯</a></li>
+    <li><a href="#arap">ARAP：把拉扯拉回來</a></li>
+    <li><a href="#stage1">Stage 1＝逆向渲染</a></li>
+    <li><a href="#quiz">小測驗</a></li>
+    <li><a href="#code">對照程式碼與參考文獻</a></li>
+  </ol>
+</nav>
+
+<!-- ============================================================ -->
+<h2 id="overview">1. 全貌：一隻會動的 3D 動物＝幾個陣列＋一個函數</h2>
+<p>在電腦裡，3D 動物不是「一個東西」，而是幾個陣列。下面用 <code>n</code> 表示頂點數、<code>m</code> 表示三角形數、<code>J</code> 表示骨頭數。</p>
+<div class="tablewrap"><table>
+  <tr><th>陣列</th><th>形狀</th><th>意思</th><th>屬於</th></tr>
+  <tr><td><code>V_rest</code></td><td>n × 3 實數</td><td>每個頂點在靜止姿勢的 (x, y, z)</td><td>Mesh</td></tr>
+  <tr><td><code>F</code></td><td>m × 3 整數</td><td>每個三角形由哪 3 個頂點組成（存編號）</td><td>Mesh</td></tr>
+  <tr><td><code>UV</code></td><td>n × 2 實數</td><td>每個頂點在貼圖上的座標 (u, v)</td><td>Texture</td></tr>
+  <tr><td><code>T</code></td><td>H × W × 3</td><td>一張圖片</td><td>Texture</td></tr>
+  <tr><td><code>parent</code></td><td>J 整數</td><td>每根骨頭的父骨頭，形成一棵樹</td><td>Skeleton</td></tr>
+  <tr><td><code>W</code></td><td>n × J 實數</td><td>每個頂點受每根骨頭影響多少</td><td>Skin weights</td></tr>
+</table></div>
+<p>動畫就是一個函數：給第 t 幀每根骨頭的姿勢 θ<sub>t</sub>，算出這一幀所有頂點的新位置。</p>
+<div class="eq">V(t) = Skinning( V_rest, W, FK(θ<sub>t</sub>) )
+  <small>FK＝正向運動學（第 6 節），Skinning＝把骨頭的運動傳到皮上（第 8 節）</small></div>
+<div class="key"><b>最重要的一句話：</b>動畫時只有頂點位置 V 在變；F、UV、T、W 全部不變。所以「讓模型動起來」在數學上就是找 θ<sub>t</sub> ↦ V(t) 這個函數，而 AnimaMimic 的工作是反過來：看著影片去<b>猜</b>每一幀的 θ<sub>t</sub>。</div>
+<p>整條流程長這樣（第 10 節會再回來看）：</p>
+<div class="pipe">
+  <div class="box"><b>θ<sub>t</sub></b>骨頭姿勢</div><span class="arr">→</span>
+  <div class="box"><b>FK</b>每根骨頭的矩陣</div><span class="arr">→</span>
+  <div class="box"><b>LBS</b>頂點位置 V(t)</div><span class="arr">→</span>
+  <div class="box"><b>可微渲染</b>算出畫面</div><span class="arr">→</span>
+  <div class="box loss"><b>Loss</b>和影片比</div>
+</div>
+<p class="back">↺ 梯度沿著箭頭反方向傳回 θ<sub>t</sub>，更新姿勢，重複幾千次。</p>
+
+<!-- ============================================================ -->
+<h2 id="mesh">2. Mesh：用分段平面去逼近一個曲面</h2>
+<p><b>定義。</b>三角網格 M = (V, F) 是一個 <i>piecewise-linear</i> 曲面：真實的動物表面是光滑的，我們用很多小平面三角形去逼近它。這裡有兩種資訊要分清楚：</p>
+<ul>
+  <li><b>Geometry（幾何）</b>＝ V：每個點<b>在哪裡</b>。</li>
+  <li><b>Topology／connectivity（拓樸）</b>＝ F：<b>誰和誰相連</b>。邊（edge）不用另外存，從 F 就推得出來：每個三角形有 3 條邊，相鄰兩個三角形共用一條。</li>
+</ul>
+<p>這種存法叫 <i>indexed face set</i>：頂點只存一次，三角形存的是編號。好處是改一個頂點的位置，所有用到它的三角形都跟著動，不會裂開。</p>
+
+<h3>拓樸的檢查：Euler characteristic（歐拉示性數）</h3>
+<div class="eq">V − E + F = 2 − 2g
+  <small>V、E、F 是頂點、邊、面的數量；g 是 genus（洞的數量，甜甜圈 g = 1，球 g = 0）</small></div>
+<p>對封閉的三角網格，每個面有 3 條邊、每條邊被 2 個面共用，所以 3F = 2E。代進上式（g = 0）得到 <b>F ≈ 2V、E ≈ 3V</b>。</p>
+
+<h3>法向量（normal）</h3>
+<div class="eq">n = (b − a) × (c − a) ／ ‖(b − a) × (c − a)‖</div>
+<p>三角形 (a, b, c) 的法向量由叉積算出；方向由頂點順序（winding order，通常逆時針）決定。渲染時用它判斷三角形朝向鏡頭還是背對鏡頭（<i>back-face culling</i>），也用它算光照：越正對光源越亮（Lambert：亮度 ∝ max(0, n·l)）。</p>
+
+<div class="demo">
+  <div class="title">實驗 1：一顆球的網格</div>
+  <div class="hint">拖曳旋轉。調細分層數，看 V、E、F 怎麼變，以及 V − E + F 為什麼永遠是 2。勾「變形」只改 V（幾何），F（拓樸）完全不變——這就是動畫在做的事。</div>
+  <canvas id="mesh3d" class="drag"></canvas>
+  <div class="controls">
+    <label>細分層數 <input type="range" id="m-level" min="0" max="3" step="1" value="2"><span class="val" id="m-level-v">2</span></label>
+    <label><input type="checkbox" id="m-wire" checked> 顯示邊</label>
+    <label><input type="checkbox" id="m-normals"> 顯示法向量</label>
+    <label><input type="checkbox" id="m-cull" checked> 背面剔除</label>
+    <label><input type="checkbox" id="m-deform"> 變形（只改 V）</label>
+    <label><input type="checkbox" id="m-spin" checked> 自動旋轉</label>
+  </div>
+  <div class="stats" id="m-stats"></div>
+</div>
+
+<div class="ours"><b class="tag">在我們的專案裡</b>　貓的 mesh 焊接後有 V = 30,002、E = 90,000、F = 60,000，所以 V − E + F = 30,002 − 90,000 + 60,000 = <b>2</b>：一個封閉、沒有洞的曲面。這就是我說「Hunyuan3D 重建出來的幾何是 360° 完整的」的數學根據。</div>
+
+<h3>為什麼檔案裡的頂點比「真正的點」多？（焊接，welding）</h3>
+<p>glTF 這類格式規定<b>一個頂點只能有一組屬性</b>（一個 UV、一個法向量）。同一個空間位置，如果在兩個三角形裡需要不同的 UV（例如貼圖的接縫），就必須拆成兩個頂點。所以：</p>
+<ul>
+  <li>貓的 <code>rigged.glb</code> 裡有 <b>179,896</b> 個頂點，幾乎每個三角形都有自己的 3 個頂點。</li>
+  <li>做幾何計算（權重平滑、ARAP）前，要把「位置相同」的頂點合併回來，叫 <b>welding</b>，合併後剩 <b>30,002</b> 個。</li>
+  <li>不焊接的後果：接縫兩邊被當成不相連，各自平滑、各自變形，皮就會在接縫處裂開。之前馬被撕裂，就是原因之一。</li>
+</ul>
+
+<h3>Mesh 從哪裡來</h3>
+<p>Hunyuan3D-2 不直接輸出三角形。它先預測一個<b>隱式場</b>（implicit field，例如 SDF：空間中每一點到表面的有號距離，裡面為負、外面為正），再用 <b>Marching Cubes</b> 演算法在「值＝0」的等值面上抽出三角形。gpu5 記錄裡的「Volume Decoding」就是在 3D 格點上逐格算這個場。其他 3D 表示法還有點雲、體素、NeRF、3D Gaussian Splatting；mesh 的優點是明確、渲染快、容易綁骨架，所以動畫業界都用它。</p>
+
+<!-- ============================================================ -->
+<h2 id="bary">3. 重心座標：三角形內每一點的「地址」</h2>
+<p>三角形 (a, b, c) 內任何一點 p 都能唯一寫成三個頂點的加權平均：</p>
+<div class="eq">p = α·a + β·b + γ·c，　α + β + γ = 1
+  <small>p 在三角形內 ⇔ α, β, γ 都 ≥ 0。α 等於「p 和 b、c 圍成的三角形面積」除以整個三角形面積，β、γ 同理。</small></div>
+<p>這是 mesh 上所有<b>內插</b>的基礎：頂點上存的任何東西（顏色、UV、法向量、甚至蒙皮權重）都用同一組 (α, β, γ) 內插到三角形內部。</p>
+
+<div class="demo">
+  <div class="title">實驗 2：拖動 P（或三個頂點）</div>
+  <div class="hint">三個頂點分別是紅、綠、藍；三角形內每個像素的顏色＝ α·紅 + β·綠 + γ·藍。把 P 拖出三角形，看哪個係數變成負的。</div>
+  <canvas id="bary-c" class="drag"></canvas>
+  <div class="stats" id="bary-stats"></div>
+</div>
+<div class="ours"><b class="tag">在我們的專案裡</b>　把 gpu5 生成的多視角貼圖搬到我們的模型上（<code>scripts/transfer_painted_texture.py</code>）時，兩邊的三角形順序完全一樣，所以每個貼圖像素只要記住「在第 f 個三角形、重心座標 (α, β, γ)」，到另一邊用同一組數字就找到同一個點——精確對應，不必做最近點搜尋。</div>
+
+<!-- ============================================================ -->
+<h2 id="texture">4. Texture 與 UV 參數化：把 2D 圖片包到 3D 曲面上</h2>
+<p><b>UV parameterization</b> 是一個映射 φ：曲面 → [0, 1]²，給每個頂點一個 2D 座標 (u, v)。曲面上任一點的顏色是：</p>
+<div class="eq">color(p) = T( α·uv<sub>a</sub> + β·uv<sub>b</sub> + γ·uv<sub>c</sub> )
+  <small>先用重心座標內插出 UV，再到圖片 T 上取色（取色時通常用雙線性內插）。圖片上的像素叫 texel。</small></div>
+<p>一個三角形在 UV 平面上的形狀，和它在 3D 裡的形狀不一定一樣。不一樣的話，貼圖就會被拉長或壓扁——這叫<b>參數化扭曲（distortion）</b>。</p>
+
+<div class="demo">
+  <div class="title">實驗 3：拖動左邊的 UV 三角形，或右邊畫面上的三角形</div>
+  <div class="hint">左：貼圖空間（u 向右、v 向上）。右：畫面上的三角形，用左邊框起來的那塊貼圖填滿。兩邊形狀差越多，「拉伸比」越大。</div>
+  <div class="two">
+    <canvas id="uv-left" class="drag"></canvas>
+    <canvas id="uv-right" class="drag"></canvas>
+  </div>
+  <div class="stats" id="uv-stats"></div>
+</div>
+
+<h3>為什麼一定會有接縫（seam）</h3>
+<p>有彎曲的封閉曲面，不可能不切開、不變形就攤平到平面上（Gauss 的 <i>Theorema Egregium</i>：高斯曲率在不拉伸的映射下保持不變，而平面的曲率是 0）。地圖投影永遠有變形、橘子皮剝下來攤不平，都是同一個道理。所以 xatlas 這類工具會把曲面切成很多塊（charts），每塊各自攤平，再排進同一張圖（atlas）。切口就是接縫，接縫上的頂點需要兩組 UV——又回到上一節的焊接問題。</p>
+<div class="ours"><b class="tag">在我們的專案裡</b>　第 0 幀只看得到動物的一側，所以 UV 一開始是「把第 0 幀直接投影上去」。之後 <code>scripts/bake_texture.py</code> 用 xatlas 給模型做一張 2048×2048 的 atlas，看不到的那一側先用鏡射補；再後來用 Hunyuan3D-Paint 生成六個視角，做成「混合」貼圖。</div>
+
+<!-- ============================================================ -->
+<h2 id="render">5. 渲染（rendering）與可微分渲染</h2>
+<p>渲染＝從 3D 場景算出 2D 畫面。光柵化（rasterization）分三步：</p>
+<ol>
+  <li><b>投影（projection）</b>：針孔相機。點先轉到相機座標 X<sub>c</sub> = R·X + T，再除以深度：
+    <div class="eq">x = f · X<sub>c</sub> ／ Z<sub>c</sub> + c<sub>x</sub>，　y = f · Y<sub>c</sub> ／ Z<sub>c</sub> + c<sub>y</sub>
+      <small>f 由視角（fov）決定。除以 Z<sub>c</sub> 就是「越遠越小」。我們的 <code>camera.json</code> 存的就是 R、T、fov；「相機擬合」就是在估這幾個數。</small></div></li>
+  <li><b>覆蓋測試（coverage）</b>：每個三角形蓋到哪些像素。同一個像素被好幾個三角形蓋到時，用 <b>z-buffer</b> 留下 Z<sub>c</sub> 最小（最靠近鏡頭）的那個。</li>
+  <li><b>著色（shading）</b>：用重心座標內插 UV 取貼圖顏色，再乘上光照。</li>
+</ol>
+
+<h3>可微分渲染：AnimaMimic 能運作的關鍵</h3>
+<p>我們要用梯度下降調整姿勢，就需要「頂點往左移一點，畫面會變好還是變差」的梯度。問題是傳統光柵化的覆蓋是 0 或 1 的<b>跳躍函數</b>：頂點稍微動一下，要嘛完全沒有像素改變（梯度 0），要嘛某個像素突然翻轉（梯度不存在）。解法是讓覆蓋率變平滑：</p>
+<div class="eq">coverage(pixel) = sigmoid( −d ／ σ ) = 1 ／ (1 + e<sup>d／σ</sup>)
+  <small>d＝像素中心到三角形邊界的有號距離（內部為負）。σ 越大邊緣越軟、梯度能傳得越遠；σ → 0 就退回硬邊緣。</small></div>
+
+<div class="demo">
+  <div class="title">實驗 4：硬邊緣 vs 軟邊緣，以及為什麼梯度會消失</div>
+  <div class="hint">「影片」是三角形在位移 0 的位置（虛線）。左右拖位移，右邊畫出 Loss＝Σ(覆蓋 − 影片)²。硬邊緣的曲線是一階一階的樓梯，斜率幾乎處處是 0；軟邊緣是平滑的碗，每一點都有斜率。按「走一步」用梯度下降試試看。</div>
+  <div class="two">
+    <canvas id="ras-grid"></canvas>
+    <canvas id="ras-plot"></canvas>
+  </div>
+  <div class="controls">
+    <label>位移 <input type="range" id="ras-dx" min="-2.5" max="2.5" step="0.01" value="1.6"><span class="val" id="ras-dx-v"></span></label>
+    <label>σ <input type="range" id="ras-sig" min="0.05" max="1.5" step="0.01" value="0.45"><span class="val" id="ras-sig-v"></span></label>
+    <label><input type="radio" name="ras-mode" value="soft" checked> 軟</label>
+    <label><input type="radio" name="ras-mode" value="hard"> 硬</label>
+    <button id="ras-step" class="primary">梯度下降走一步</button>
+  </div>
+  <div class="stats" id="ras-stats"></div>
+</div>
+<div class="ours"><b class="tag">在我們的專案裡</b>　<code>animamimic/render.py</code> 的 <code>RasterRenderer</code> 就是這樣：純 PyTorch 寫的軟光柵化器，可以在 CUDA 和 Mac 的 MPS 上跑。參數 <code>--sigma</code> 控制邊緣軟硬：優化時用 1e-5 ~ 1e-4（梯度範圍大），給你看的成品用 1e-6（幾乎是硬邊緣）。</div>
+
+<!-- ============================================================ -->
+<h2 id="skeleton">6. Skeleton 與正向運動學（Forward Kinematics）</h2>
+<p><b>資料結構。</b>骨架是一棵有根的樹，叫 <i>kinematic tree</i>：J 個關節，每個存它的父節點 <code>parent[j]</code>，根節點（通常是骨盆）的父節點是 −1。每個關節帶一個<b>相對於父節點</b>的剛體變換，屬於 SE(3)（三維旋轉＋平移），用 4×4 齊次矩陣表示：</p>
+<div class="eq">L<sub>j</sub> = [ R<sub>j</sub>　t<sub>j</sub> ; 0　1 ]，　R<sub>j</sub> ∈ SO(3)：R<sup>T</sup>R = I，det R = 1</div>
+<p><b>正向運動學（FK）</b>：把局部變換沿著樹一路乘下來，得到每根骨頭的全域變換：</p>
+<div class="eq">G<sub>root</sub> = L<sub>root</sub>，　G<sub>j</sub> = G<sub>parent(j)</sub> · L<sub>j</sub>
+  <small>依拓樸順序從根算到葉子。因為是連乘，轉動肩膀，整隻手臂（所有子孫）都會跟著轉。</small></div>
+
+<div class="demo">
+  <div class="title">實驗 5：三節手臂的 FK</div>
+  <div class="hint">調三個關節角度。虛線是靜止姿勢（rest pose）。橘色點「黏」在第 3 根骨頭上：它的位置＝ G₃ · (它在骨頭 3 自己座標系裡的位置)。下方是每根骨頭的全域矩陣 G（2D 用 3×3 齊次矩陣）。</div>
+  <canvas id="fk-c"></canvas>
+  <div class="controls">
+    <label>θ₁ <input type="range" id="fk-t1" min="-180" max="180" value="25"><span class="val" id="fk-t1-v"></span></label>
+    <label>θ₂ <input type="range" id="fk-t2" min="-180" max="180" value="40"><span class="val" id="fk-t2-v"></span></label>
+    <label>θ₃ <input type="range" id="fk-t3" min="-180" max="180" value="-35"><span class="val" id="fk-t3-v"></span></label>
+  </div>
+  <div class="stats" id="fk-stats"></div>
+</div>
+
+<h3>Rest pose 與 inverse bind matrix</h3>
+<p>綁骨架時的靜止姿勢叫 <i>bind pose</i>，此時骨頭 j 的全域變換記為 B<sub>j</sub>。真正拿去變形頂點的矩陣是：</p>
+<div class="eq">M<sub>j</sub> = G<sub>j</sub> · B<sub>j</sub><sup>−1</sup>
+  <small>先用 B<sub>j</sub><sup>−1</sup> 把點從世界座標轉進「骨頭 j 自己的座標系」，再用 G<sub>j</sub> 轉回「擺好姿勢後的世界」。靜止時 G<sub>j</sub> = B<sub>j</sub>，所以 M<sub>j</sub> = I，模型不動。glTF 檔裡的 inverseBindMatrices 存的就是 B<sub>j</sub><sup>−1</sup>。</small></div>
+
+<h3>為什麼要骨架：降維</h3>
+<p>直接調每個頂點：貓有 18 萬個頂點 × 3 ≈ 54 萬個未知數，每幀都要估，一定會亂扭。用骨架：23 個關節 × 3 個旋轉角，加上少量平移，約 70 個參數。骨架把可能的變形限制在一個<b>低維子空間</b>裡——這本身就是很強的先驗（prior），也是一種正則化。</p>
+
+<h3>旋轉要怎麼存？（這會真的影響優化）</h3>
+<div class="tablewrap"><table>
+  <tr><th>表示法</th><th>參數數</th><th>問題</th></tr>
+  <tr><td>Euler angles</td><td>3</td><td>gimbal lock：某些角度會少掉一個自由度</td></tr>
+  <tr><td>Axis-angle（so(3)）</td><td>3</td><td>在 180° 附近不連續</td></tr>
+  <tr><td>Quaternion</td><td>4</td><td>q 和 −q 是同一個旋轉（double cover）；要維持單位長度</td></tr>
+  <tr><td>旋轉矩陣</td><td>9</td><td>要額外維持正交性</td></tr>
+  <tr><td><b>6D 表示</b></td><td>6</td><td>連續，最適合梯度優化</td></tr>
+</table></div>
+<p>6D 表示（Zhou et al., CVPR 2019）：只存旋轉矩陣的前兩欄，用 Gram–Schmidt 正交化，第三欄用外積補。他們證明 3 或 4 維的表示在數學上不可能處處連續，而神經網路和梯度下降都需要連續性。</p>
+<div class="ours"><b class="tag">在我們的專案裡</b>　Stage 1 的結果 <code>stage1.npz</code> 裡，<code>r6d</code> 的形狀是 (32 幀, 23 關節, 6)，<code>t</code> 是 (32, 23, 3)。骨架由 UniRig 預測：它把「生成骨架」當成序列生成問題，像語言模型一樣一根一根骨頭吐出來。</div>
+
+<!-- ============================================================ -->
+<h2 id="weights">7. Skin weights：一個有約束的矩陣</h2>
+<p>W ∈ ℝ<sup>n×J</sup>，w<sub>ij</sub> 表示頂點 i 受骨頭 j 影響多少。三個約束：</p>
+<ul>
+  <li><b>非負</b>：w<sub>ij</sub> ≥ 0</li>
+  <li><b>總和為 1</b>：Σ<sub>j</sub> w<sub>ij</sub> = 1（partition of unity），讓結果是各骨頭結果的凸組合</li>
+  <li><b>稀疏</b>：每個頂點只記影響最大的幾根（glTF 慣例最多 4 根）</li>
+</ul>
+<p><b>權重從哪來：</b></p>
+<ul>
+  <li>美術師手畫（Hugging Face 上那頭牛就是）。</li>
+  <li><i>Bone heat</i>（Baran &amp; Popović 2007）：把骨頭當熱源，在 mesh 上解熱擴散方程。</li>
+  <li><i>Bounded biharmonic weights</i>（Jacobson et al. 2011）：在約束下最小化權重的「彎曲能量」，得到很平滑的權重。</li>
+  <li>神經網路預測：UniRig、RigNet。我們用 UniRig。</li>
+</ul>
+<h3>我們的權重平滑＝在 mesh 上做熱擴散</h3>
+<div class="eq">w<sub>i</sub> ← (1 − λ)·w<sub>i</sub> + λ · (鄰居權重的平均)
+  <small>這是離散 Laplacian smoothing，等於熱方程 ∂w／∂t = Δw 的顯式時間步進。每做一步，權重的「突變」就被抹平一點。</small></div>
+<p>為什麼要平滑？下一節會看到：<b>權重變化越快的地方，皮被拉扯得越厲害。</b>實驗 6 可以切換「顯示權重」看它長什麼樣子。</p>
+
+<!-- ============================================================ -->
+<h2 id="lbs">8. Skinning：Linear Blend Skinning（LBS）與表面拉扯</h2>
+<div class="eq">v<sub>i</sub>′ = Σ<sub>j</sub> w<sub>ij</sub> · M<sub>j</sub> · v<sub>i</sub>　＝　( Σ<sub>j</sub> w<sub>ij</sub> M<sub>j</sub> ) · v<sub>i</sub>
+  <small>每根骨頭各自把頂點搬到一個位置，最後按權重加權平均。</small></div>
+<p><b>優點：</b>對頂點、對權重都是線性的；GPU 一次算完；處處可微——所以 Stage 1 才能把「姿勢 → FK → LBS → 渲染 → loss」整條鏈用 autograd 反向傳播。</p>
+
+<h3>缺陷：為什麼皮會被拉扯</h3>
+<p>把 LBS 看成從靜止曲面到變形後曲面的映射 x ↦ x′。表面會不會被拉長，由它的 Jacobian（局部線性近似）決定：</p>
+<div class="eq">∂x′／∂x　=　Σ<sub>j</sub> w<sub>j</sub> A<sub>j</sub>　＋　Σ<sub>j</sub> (M<sub>j</sub> x) ⊗ ∇w<sub>j</sub>
+  <small>A<sub>j</sub> 是 M<sub>j</sub> 的旋轉部分；⊗ 是外積；∇w<sub>j</sub> 是權重沿表面的梯度。</small></div>
+<ol>
+  <li><b>第一項：旋轉的平均不是旋轉。</b>兩根骨頭相對轉了 θ、權重各一半的地方，平均矩陣是
+    <div class="eq">½ (I + R(θ)) = cos(θ／2) · R(θ／2)</div>
+    也就是「轉一半，再縮成 cos(θ/2) 倍」。θ = 90° 縮成 0.71 倍；θ = 180° 縮成 0——皮被扭成一條線，這就是有名的 <i>candy-wrapper artifact</i>（糖果紙效應）。</li>
+  <li><b>第二項：權重變化快的地方被撕開。</b>因為 Σ<sub>j</sub> ∇w<sub>j</sub> = 0，這一項其實是「權重變化有多快」乘上「兩根骨頭對同一點的預測差多遠」：
+    <div class="eq">拉伸 ≈ ‖∇w‖ × ‖M<sub>j</sub> x − M<sub>k</sub> x‖</div>
+    權重越陡（過渡帶越窄），兩根骨頭一分開，中間那條窄帶就被硬拉長。</li>
+</ol>
+<p>所以有個兩難：過渡帶太窄 → 第二項大（窄帶被撕開）；過渡帶太寬 → 第一項影響的範圍變大（一大片都縮水）。在下面的實驗把兩邊都試試。</p>
+
+<div class="demo">
+  <div class="title">實驗 6：彎曲一根管子——LBS 的拉扯，與 ARAP 的修正</div>
+  <div class="hint">左半黏在骨頭 1、右半黏在骨頭 2，中間的過渡帶寬度可調。顏色＝拉伸熱圖（白＝沒拉伸，紅＝拉長或壓縮 30% 以上）。先把過渡寬度調到最小，看外側被撕開；再調到最大，看內側整片縮水；最後打開 ARAP，拉 λ 看「越剛」和「越貼近原動作」之間的取捨。</div>
+  <canvas id="lbs-c"></canvas>
+  <div class="controls">
+    <label>彎曲 θ <input type="range" id="lbs-th" min="-150" max="150" value="70"><span class="val" id="lbs-th-v"></span></label>
+    <label>過渡寬度 <input type="range" id="lbs-w" min="0.02" max="1.6" step="0.01" value="0.35"><span class="val" id="lbs-w-v"></span></label>
+    <label><input type="checkbox" id="lbs-showw"> 顯示權重</label>
+    <label><input type="checkbox" id="lbs-arap"> 套用 ARAP</label>
+    <label>λ <input type="range" id="lbs-lam" min="-3.3" max="-0.7" step="0.01" value="-2.5"><span class="val" id="lbs-lam-v"></span></label>
+  </div>
+  <div class="legend" id="lbs-legend"></div>
+  <div class="stats" id="lbs-stats"></div>
+</div>
+
+<h3>常見的解法</h3>
+<div class="tablewrap"><table>
+  <tr><th>方法</th><th>原理</th><th>代價</th></tr>
+  <tr><td>Dual Quaternion Skinning（Kavan et al. 2007）</td><td>改在 dual quaternion 空間平均再正規化，結果保證是剛體變換</td><td>不會縮水，但關節處會鼓起來</td></tr>
+  <tr><td>Pose-space blend shapes（例如 SMPL）</td><td>LBS 再加上「依姿勢學出來的修正位移」</td><td>需要大量掃描資料來學</td></tr>
+  <tr><td>物理模擬（論文 Stage 2）</td><td>把物體當彈性體，用有限元素法（FEM）讓變形符合物理</td><td>很慢（小時級）</td></tr>
+  <tr><td><b>ARAP 修正（我們加的）</b></td><td>見下一節</td><td>每隻幾十秒</td></tr>
+</table></div>
+
+<!-- ============================================================ -->
+<h2 id="arap">9. ARAP：盡可能剛性（As-Rigid-As-Possible）</h2>
+<p>ARAP（Sorkine &amp; Alexa 2007）的想法：允許每一小塊表面<b>旋轉</b>（所以可以彎曲），但不允許它被<b>拉長或歪斜</b>。每一幀解這個最佳化問題：</p>
+<div class="eq">min<sub>x, R</sub>　Σ<sub>i</sub> Σ<sub>j∈N(i)</sub> w<sub>ij</sub> ‖ (x<sub>i</sub> − x<sub>j</sub>) − R<sub>i</sub> (p<sub>i</sub> − p<sub>j</sub>) ‖²　＋　λ Σ<sub>i</sub> ‖ x<sub>i</sub> − y<sub>i</sub> ‖²
+  <small>p＝靜止位置，x＝要解的新位置，y＝LBS 算出來的位置，R<sub>i</sub>＝頂點 i 那一圈鄰居的最佳旋轉，N(i)＝鄰居，w<sub>ij</sub>＝邊的 cotangent 權重（和蒙皮權重 W 是不同的東西）。第一項要求每一圈鄰居只是被轉了一下；第二項要求不要離原本的動作太遠。λ 越小越「剛」，但離 LBS 越遠。</small></div>
+<p>用<b>交替最佳化</b>求解：</p>
+<ol>
+  <li><b>Local step</b>：固定 x，對每個頂點找最佳旋轉 R<sub>i</sub>。這是 Procrustes 問題：把 S<sub>i</sub> = Σ w<sub>ij</sub>(p<sub>i</sub>−p<sub>j</sub>)(x<sub>i</sub>−x<sub>j</sub>)<sup>T</sup> 做 SVD，R<sub>i</sub> = V U<sup>T</sup>，有封閉解（和 Kabsch 演算法一樣）。</li>
+  <li><b>Global step</b>：固定所有 R，目標對 x 是二次式，解一個稀疏線性系統 (L + λ·A) x = b。矩陣 L 是 cotangent Laplacian，和 x 無關，所以只分解一次，之後每次迭代都重用。</li>
+</ol>
+<p>實驗 6 打開「套用 ARAP」就是這個演算法（2D 版本，用 Gauss–Seidel 迭代解線性系統）。注意實驗裡的管子很粗、又只在一個關節處大角度彎曲：在這麼短的距離內彎折一個厚的物體，內側<b>一定</b>要被壓縮一些（物理上也是），所以 ARAP 只能把它從「集中在一條窄帶」變成「平均分攤」，λ 越小分攤得越開、但離原動作越遠。真實動物的彎曲平緩得多，所以在貓、狗、狼上效果比實驗裡好。</p>
+
+<div class="ours"><b class="tag">在我們的專案裡</b>　<code>scripts/arap_refine.py</code>，λ = 0.01。結果（最糟 1% 的邊被拉長多少，全段平均）：
+<div class="tablewrap"><table>
+  <tr><th></th><th>Stage 1（LBS）</th><th>論文 Stage 2（物理）</th><th>ARAP</th></tr>
+  <tr><td>白狼</td><td>13.9%</td><td>9.4%</td><td><b>6.3%</b></td></tr>
+  <tr><td>小狗</td><td>21.7%</td><td>15.8%</td><td><b>9.9%</b></td></tr>
+  <tr><td>貓</td><td>20.3%</td><td>（跑中）</td><td><b>8.8%</b></td></tr>
+</table></div>
+和影片的輪廓貼合度幾乎不變（貓的 IoU 0.8904 → 0.8905）。另外我們也驗證過：把骨頭的小位移歸零，拉扯<b>沒有</b>變少——拉扯真的來自 LBS 本身。</div>
+
+<!-- ============================================================ -->
+<h2 id="stage1">10. 串起來：Stage 1 就是一個逆向渲染問題</h2>
+<p>正向渲染：給 3D 場景 → 算畫面。<b>逆向渲染（inverse rendering）</b>：給畫面 → 猜 3D 場景。AnimaMimic 的 Stage 1：</p>
+<div class="eq" style="text-align:left; white-space:normal; font-size:16px; line-height:1.9">
+未知數：θ<sub>t</sub> = { r6d, t }，每幀約 70 個數<br>
+正向模型：θ<sub>t</sub> →(FK)→ M<sub>j</sub> →(LBS)→ V(t) →(可微渲染)→ 輪廓、顏色、深度<br>
+目標：min<sub>θ</sub> Σ<sub>t</sub> [ 輪廓 loss ＋ 顏色 loss ＋ 追蹤點 loss ＋ 深度 loss ] ＋ 正則項<br>
+求解：Adam，3000 次迭代，梯度由 autograd 一路傳回 θ
+</div>
+<p>這個思路叫 <b>analysis-by-synthesis</b>：先猜一組參數 → 畫出來 → 跟觀察比 → 沿梯度修正 → 重複。四種 loss 的資料來源：輪廓來自 SAM2 切出的遮罩，追蹤點來自 AllTracker，深度來自 VGGT，顏色就是影片本身。</p>
+
+<div class="demo">
+  <div class="title">實驗 7：玩具版 Stage 1</div>
+  <div class="hint">灰色是「影片」裡的手臂（姿勢藏起來了），藍色是我們的模型。Loss＝對應點距離的平方平均（像 Stage 1 的追蹤點 loss）。按「開始」用梯度下降去猜姿勢。學習率太大會怎樣？</div>
+  <div class="two">
+    <canvas id="inv-c"></canvas>
+    <canvas id="inv-plot"></canvas>
+  </div>
+  <div class="controls">
+    <button id="inv-run" class="primary">開始</button>
+    <button id="inv-step">走一步</button>
+    <button id="inv-new">換一個目標</button>
+    <button id="inv-reset">回到起點</button>
+    <label>學習率 <input type="range" id="inv-lr" min="0.1" max="12" step="0.1" value="2.5"><span class="val" id="inv-lr-v"></span></label>
+  </div>
+  <div class="stats" id="inv-stats"></div>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="quiz">11. 小測驗</h2>
+<p class="muted">點選答案會立刻告訴你對錯和原因。</p>
+<div class="quiz" id="quiz"></div>
+
+<!-- ============================================================ -->
+<h2 id="code">12. 對照程式碼與參考文獻</h2>
+<div class="tablewrap"><table>
+  <tr><th>概念</th><th>我們的程式</th></tr>
+  <tr><td>Mesh 的陣列（verts, faces, uv, texture）</td><td><a href="../animamimic/gltf_rig.py">animamimic/gltf_rig.py</a>（<code>MeshData</code>、<code>RiggedGLB</code>）</td></tr>
+  <tr><td>焊接（weld）</td><td><a href="../animamimic/baked.py">animamimic/baked.py</a>、<a href="../scripts/arap_refine.py">scripts/arap_refine.py</a></td></tr>
+  <tr><td>UV atlas、貼圖烘焙</td><td><a href="../scripts/bake_texture.py">scripts/bake_texture.py</a>、<a href="../scripts/transfer_painted_texture.py">scripts/transfer_painted_texture.py</a></td></tr>
+  <tr><td>可微分渲染</td><td><a href="../animamimic/render.py">animamimic/render.py</a>（<code>RasterRenderer</code>）</td></tr>
+  <tr><td>相機</td><td><a href="../animamimic/camera.py">animamimic/camera.py</a></td></tr>
+  <tr><td>6D 旋轉、FK、LBS、權重平滑</td><td><a href="../animamimic/rig.py">animamimic/rig.py</a></td></tr>
+  <tr><td>Stage 1 的 loss 與優化</td><td><a href="../animamimic/stage1.py">animamimic/stage1.py</a>、<a href="../animamimic/losses.py">animamimic/losses.py</a></td></tr>
+  <tr><td>Stage 2（物理）</td><td><a href="../animamimic/stage2.py">animamimic/stage2.py</a>、<a href="../animamimic/fem.py">animamimic/fem.py</a></td></tr>
+  <tr><td>ARAP 修正</td><td><a href="../scripts/arap_refine.py">scripts/arap_refine.py</a></td></tr>
+  <tr><td>量拉伸、畫熱圖</td><td><a href="../tests/surface_distortion.py">tests/surface_distortion.py</a>、<a href="../tests/strain_heatmap.py">tests/strain_heatmap.py</a></td></tr>
+</table></div>
+<h3>參考文獻</h3>
+<ul>
+  <li>AnimaMimic／AniMimic, CVPR 2026 — <a href="https://arxiv.org/abs/2512.14133">arXiv:2512.14133</a></li>
+  <li>Sorkine &amp; Alexa, <i>As-Rigid-As-Possible Surface Modeling</i>, SGP 2007 — <a href="https://igl.ethz.ch/projects/ARAP/arap_web.pdf">PDF</a></li>
+  <li>Kavan et al., <i>Skinning with Dual Quaternions</i>, I3D 2007</li>
+  <li>Baran &amp; Popović, <i>Automatic Rigging and Animation of 3D Characters</i>, SIGGRAPH 2007（bone heat）</li>
+  <li>Jacobson et al., <i>Bounded Biharmonic Weights for Real-Time Deformation</i>, SIGGRAPH 2011</li>
+  <li>Zhou et al., <i>On the Continuity of Rotation Representations in Neural Networks</i>, CVPR 2019 — <a href="https://arxiv.org/abs/1812.07035">arXiv:1812.07035</a></li>
+  <li>Liu et al., <i>Soft Rasterizer</i>, ICCV 2019 — <a href="https://arxiv.org/abs/1904.01786">arXiv:1904.01786</a></li>
+  <li>Loper et al., <i>SMPL: A Skinned Multi-Person Linear Model</i>, SIGGRAPH Asia 2015</li>
+  <li>Lorensen &amp; Cline, <i>Marching Cubes</i>, SIGGRAPH 1987</li>
+</ul>
+<p class="foot">本頁所有實驗都是在瀏覽器裡即時計算的簡化版本（2D 或小網格），概念和我們專案裡的 3D 程式一樣。</p>
+</main>
+
+<script>
+"use strict";
+const $ = s => document.querySelector(s);
+const cssv = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+function parseColor(c) {
+  c = c.trim();
+  if (c.startsWith('#')) { let h = c.slice(1); if (h.length === 3) h = h.split('').map(x => x + x).join(''); const n = parseInt(h, 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; }
+  const m = c.match(/[\d.]+/g); return m ? m.slice(0, 3).map(Number) : [128, 128, 128];
+}
+const mix = (a, b, t) => a.map((x, i) => Math.round(x + (b[i] - x) * t));
+const rgb = a => `rgb(${a[0]},${a[1]},${a[2]})`;
+const redraws = [];
+function fit(canvas, aspect) {
+  const w = Math.max(10, canvas.clientWidth), h = Math.round(w * aspect), d = window.devicePixelRatio || 1;
+  if (canvas.width !== Math.round(w * d) || canvas.height !== Math.round(h * d)) { canvas.width = Math.round(w * d); canvas.height = Math.round(h * d); }
+  canvas.style.height = h + 'px';
+  const ctx = canvas.getContext('2d'); ctx.setTransform(d, 0, 0, d, 0, 0);
+  return { ctx, w, h, d };
+}
+function ppos(e, c) { const r = c.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; }
+function draggable(canvas, handles, move, radius = 22) {
+  let act = -1;
+  canvas.addEventListener('pointerdown', e => {
+    const [x, y] = ppos(e, canvas); let best = -1, bd = radius * radius;
+    handles().forEach((h, i) => { const d = (h[0] - x) ** 2 + (h[1] - y) ** 2; if (d < bd) { bd = d; best = i; } });
+    if (best >= 0) { act = best; canvas.setPointerCapture(e.pointerId); e.preventDefault(); }
+  });
+  canvas.addEventListener('pointermove', e => { if (act < 0) return; const [x, y] = ppos(e, canvas); move(act, x, y); });
+  const up = () => { act = -1; };
+  canvas.addEventListener('pointerup', up); canvas.addEventListener('pointercancel', up);
+}
+function handleDot(ctx, p, label, col) {
+  ctx.beginPath(); ctx.arc(p[0], p[1], 7, 0, 7); ctx.fillStyle = col; ctx.fill();
+  ctx.lineWidth = 2; ctx.strokeStyle = cssv('--surface'); ctx.stroke();
+  if (label) { ctx.fillStyle = cssv('--text'); ctx.font = '600 14px -apple-system, "PingFang TC", sans-serif'; ctx.fillText(label, p[0] + 10, p[1] - 9); }
+}
+const visible = new Map();
+const io = new IntersectionObserver(es => es.forEach(e => visible.set(e.target, e.isIntersecting)), { rootMargin: '100px' });
+const isVis = el => visible.get(el) !== false;
+// vector helpers
+const sub = (a, b) => a.map((x, i) => x - b[i]);
+const add = (a, b) => a.map((x, i) => x + b[i]);
+const dot = (a, b) => a.reduce((s, x, i) => s + x * b[i], 0);
+const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+const len = a => Math.hypot(...a);
+const nrm = a => { const l = len(a) || 1; return a.map(x => x / l); };
+const cross2 = (a, b) => a[0] * b[1] - a[1] * b[0];
+const fmt = (x, k = 2) => (Math.abs(x) < 5e-13 ? 0 : x).toFixed(k);
+
+// theme toggle
+(function () {
+  const root = document.documentElement, btn = $('#themebtn');
+  try { const t = localStorage.getItem('tut-theme'); if (t) root.dataset.theme = t; } catch (e) {}
+  btn.onclick = () => {
+    const dark = root.dataset.theme ? root.dataset.theme === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
+    root.dataset.theme = dark ? 'light' : 'dark';
+    try { localStorage.setItem('tut-theme', root.dataset.theme); } catch (e) {}
+    redraws.forEach(f => f());
+  };
+  matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => redraws.forEach(f => f()));
+  let rt; const later = () => { clearTimeout(rt); rt = setTimeout(() => redraws.forEach(f => f()), 60); };
+  window.addEventListener('resize', later);
+  // a canvas laid out while hidden has no width; redraw once it gets one
+  const widths = new Map();
+  const ro = new ResizeObserver(es => { let changed = false; es.forEach(e => { const w = Math.round(e.contentRect.width); if (widths.get(e.target) !== w) { widths.set(e.target, w); changed = true; } }); if (changed) later(); });
+  window.addEventListener('DOMContentLoaded', () => document.querySelectorAll('canvas').forEach(c => ro.observe(c)));
+})();
+
+// ================= Demo 1: icosphere =================
+(function () {
+  const c = $('#mesh3d'); io.observe(c);
+  function icosphere(level) {
+    const t = (1 + Math.sqrt(5)) / 2;
+    let V = [[-1, t, 0], [1, t, 0], [-1, -t, 0], [1, -t, 0], [0, -1, t], [0, 1, t], [0, -1, -t], [0, 1, -t], [t, 0, -1], [t, 0, 1], [-t, 0, -1], [-t, 0, 1]].map(nrm);
+    let F = [[0, 11, 5], [0, 5, 1], [0, 1, 7], [0, 7, 10], [0, 10, 11], [1, 5, 9], [5, 11, 4], [11, 10, 2], [10, 7, 6], [7, 1, 8], [3, 9, 4], [3, 4, 2], [3, 2, 6], [3, 6, 8], [3, 8, 9], [4, 9, 5], [2, 4, 11], [6, 2, 10], [8, 6, 7], [9, 8, 1]];
+    for (let l = 0; l < level; l++) {
+      const cache = new Map();
+      const mid = (a, b) => { const k = a < b ? a + '_' + b : b + '_' + a; if (cache.has(k)) return cache.get(k); V.push(nrm(V[a].map((x, i) => (x + V[b][i]) / 2))); cache.set(k, V.length - 1); return V.length - 1; };
+      const nF = []; for (const [a, b, cc] of F) { const ab = mid(a, b), bc = mid(b, cc), ca = mid(cc, a); nF.push([a, ab, ca], [b, bc, ab], [cc, ca, bc], [ab, bc, ca]); }
+      F = nF;
+    }
+    return { V, F };
+  }
+  let M = icosphere(2), yaw = 0.5, pitch = -0.35, drag = null;
+  const st = { wire: true, normals: false, cull: true, deform: false, spin: true };
+  function edges(F) { const s = new Set(); for (const f of F) for (let k = 0; k < 3; k++) { const a = f[k], b = f[(k + 1) % 3]; s.add(a < b ? a * 100000 + b : b * 100000 + a); } return s.size; }
+  function geom() { return M.V.map(v => { if (!st.deform) return v; const k = 1 + 0.24 * Math.sin(3 * v[0] + 1) * Math.cos(2.2 * v[1]) + 0.12 * Math.sin(5 * v[2]); return v.map(x => x * k); }); }
+  function draw() {
+    const { ctx, w, h } = fit(c, 0.62); ctx.clearRect(0, 0, w, h);
+    const P = geom(), cy = Math.cos(yaw), sy = Math.sin(yaw), cp = Math.cos(pitch), sp = Math.sin(pitch);
+    const R = P.map(([x, y, z]) => { const x1 = cy * x + sy * z, z1 = -sy * x + cy * z; return [x1, cp * y - sp * z1, sp * y + cp * z1]; });
+    const D = 3.6, f = Math.min(w, h) * 1.35, cx = w / 2, cyy = h / 2;
+    const proj = p => [cx + f * p[0] / (p[2] + D), cyy - f * p[1] / (p[2] + D)];
+    const S = R.map(proj), L = nrm([-0.5, 0.75, -1]);
+    const base = parseColor(cssv('--accent')), bg = parseColor(cssv('--surface-2'));
+    const faces = M.F.map(fi => {
+      const [a, b, cc] = fi.map(i => R[i]); let n = nrm(cross(sub(b, a), sub(cc, a)));
+      const cen = [(a[0] + b[0] + cc[0]) / 3, (a[1] + b[1] + cc[1]) / 3, (a[2] + b[2] + cc[2]) / 3];
+      if (dot(n, cen) < 0) n = n.map(x => -x); // orient outward (closed star-shaped surface)
+      return { fi, n, cen, front: dot(n, sub([0, 0, -D], cen)) > 0 };
+    });
+    faces.sort((p, q) => q.cen[2] - p.cen[2]);
+    const wire = cssv('--wire');
+    for (const fc of faces) {
+      if (st.cull && !fc.front) continue;
+      const pts = fc.fi.map(i => S[i]);
+      ctx.beginPath(); ctx.moveTo(pts[0][0], pts[0][1]); ctx.lineTo(pts[1][0], pts[1][1]); ctx.lineTo(pts[2][0], pts[2][1]); ctx.closePath();
+      const nn = fc.front ? fc.n : fc.n.map(x => -x);
+      const br = 0.22 + 0.78 * Math.max(0, dot(nn, L));
+      ctx.fillStyle = rgb(mix(bg, base, fc.front ? br : br * 0.45)); ctx.fill();
+      if (st.wire) { ctx.strokeStyle = wire; ctx.lineWidth = 0.7; ctx.stroke(); }
+    }
+    if (st.normals) {
+      ctx.strokeStyle = cssv('--accent-2'); ctx.lineWidth = 1.2;
+      for (const fc of faces) { if (st.cull && !fc.front) continue; const a = proj(fc.cen), b = proj(add(fc.cen, fc.n.map(x => x * 0.2))); ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke(); }
+    }
+    const nV = M.V.length, nF = M.F.length, nE = edges(M.F);
+    const v0 = P[0].map(x => fmt(x)).join(', '), f0 = M.F[0].join(', ');
+    $('#m-stats').innerHTML = `V = <b>${nV}</b>　E = <b>${nE}</b>　F = <b>${nF}</b>　V − E + F = <b>${nV - nE + nF}</b>　（F／V = ${(nF / nV).toFixed(2)}）<br>V[0] = (${v0})　F[0] = (${f0})　← F 存的是頂點<b>編號</b>`;
+  }
+  redraws.push(draw);
+  const lv = $('#m-level');
+  lv.oninput = () => { M = icosphere(+lv.value); $('#m-level-v').textContent = lv.value; draw(); };
+  [['#m-wire', 'wire'], ['#m-normals', 'normals'], ['#m-cull', 'cull'], ['#m-deform', 'deform'], ['#m-spin', 'spin']].forEach(([id, k]) => { $(id).onchange = e => { st[k] = e.target.checked; draw(); }; });
+  c.addEventListener('pointerdown', e => { drag = ppos(e, c); c.setPointerCapture(e.pointerId); });
+  c.addEventListener('pointermove', e => { if (!drag) return; const p = ppos(e, c); yaw += (p[0] - drag[0]) * 0.01; pitch = Math.max(-1.5, Math.min(1.5, pitch + (p[1] - drag[1]) * 0.01)); drag = p; draw(); });
+  c.addEventListener('pointerup', () => drag = null); c.addEventListener('pointercancel', () => drag = null);
+  function loop() { if (st.spin && !drag && isVis(c)) { yaw += 0.006; draw(); } requestAnimationFrame(loop); }
+  draw(); requestAnimationFrame(loop);
+})();
+
+// ================= Demo 2: barycentric =================
+(function () {
+  const c = $('#bary-c'); const P = [[0.16, 0.85], [0.86, 0.8], [0.48, 0.12], [0.5, 0.6]]; // A B C P (normalized)
+  const cols = [[226, 64, 64], [40, 176, 80], [52, 96, 232]];
+  const off = document.createElement('canvas');
+  let W = 1, H = 1;
+  function bary(a, b, cc, q) { const d = cross2(sub(b, a), sub(cc, a)); const al = cross2(sub(b, q), sub(cc, q)) / d, be = cross2(sub(cc, q), sub(a, q)) / d; return [al, be, 1 - al - be]; }
+  function draw() {
+    const { ctx, w, h } = fit(c, 0.56); W = w; H = h;
+    const px = P.map(q => [q[0] * w, q[1] * h]); const [a, b, cc, p] = px;
+    off.width = Math.max(1, Math.round(w / 2)); off.height = Math.max(1, Math.round(h / 2));
+    const oc = off.getContext('2d'), img = oc.createImageData(off.width, off.height);
+    for (let y = 0; y < off.height; y++) for (let x = 0; x < off.width; x++) {
+      const [al, be, ga] = bary(a, b, cc, [(x + 0.5) * 2, (y + 0.5) * 2]);
+      if (al >= 0 && be >= 0 && ga >= 0) { const i = (y * off.width + x) * 4; for (let k = 0; k < 3; k++) img.data[i + k] = Math.round(al * cols[0][k] + be * cols[1][k] + ga * cols[2][k]); img.data[i + 3] = 235; }
+    }
+    oc.putImageData(img, 0, 0);
+    ctx.clearRect(0, 0, w, h); ctx.imageSmoothingEnabled = true; ctx.drawImage(off, 0, 0, w, h);
+    ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.lineTo(cc[0], cc[1]); ctx.closePath(); ctx.strokeStyle = cssv('--text'); ctx.lineWidth = 1.5; ctx.stroke();
+    const [al, be, ga] = bary(a, b, cc, p);
+    // sub-triangles from P
+    ctx.setLineDash([4, 4]); ctx.strokeStyle = cssv('--text-2'); ctx.lineWidth = 1;
+    [a, b, cc].forEach(v => { ctx.beginPath(); ctx.moveTo(p[0], p[1]); ctx.lineTo(v[0], v[1]); ctx.stroke(); }); ctx.setLineDash([]);
+    handleDot(ctx, a, 'a', rgb(cols[0])); handleDot(ctx, b, 'b', rgb(cols[1])); handleDot(ctx, cc, 'c', rgb(cols[2]));
+    const inside = al >= 0 && be >= 0 && ga >= 0;
+    handleDot(ctx, p, 'P', inside ? rgb([al * cols[0][0] + be * cols[1][0] + ga * cols[2][0], al * cols[0][1] + be * cols[1][1] + ga * cols[2][1], al * cols[0][2] + be * cols[1][2] + ga * cols[2][2]].map(x => Math.max(0, Math.min(255, Math.round(x))))) : cssv('--muted'));
+    const neg = x => x < 0 ? `<span style="color:var(--bad)">${fmt(x, 3)}</span>` : fmt(x, 3);
+    $('#bary-stats').innerHTML = `α = <b>${neg(al)}</b>　β = <b>${neg(be)}</b>　γ = <b>${neg(ga)}</b>　α + β + γ = ${fmt(al + be + ga, 3)}<br>` +
+      (inside ? 'P 在三角形<b>內</b>：三個係數都 ≥ 0，P 的顏色就是 α·紅 + β·綠 + γ·藍。' : 'P 在三角形<b>外</b>：至少一個係數是負的（紅字）。渲染器就是用這個判斷一個像素有沒有被三角形蓋到。');
+  }
+  redraws.push(draw);
+  draggable(c, () => P.map(q => [q[0] * W, q[1] * H]), (i, x, y) => { P[i] = [Math.min(0.98, Math.max(0.02, x / W)), Math.min(0.97, Math.max(0.03, y / H))]; draw(); });
+  draw();
+})();
+
+// ================= Demo 3: UV mapping =================
+(function () {
+  const L = $('#uv-left'), Rc = $('#uv-right'), TS = 512;
+  const tex = document.createElement('canvas'); tex.width = tex.height = TS;
+  (function makeTex() {
+    const g = tex.getContext('2d'), n = 8, s = TS / n;
+    for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
+      const hue = 200 + i * 18 - j * 10, light = (i + j) % 2 ? 58 : 76;
+      g.fillStyle = `hsl(${hue},55%,${light}%)`; g.fillRect(i * s, j * s, s, s);
+      g.fillStyle = 'rgba(0,0,0,.72)'; g.font = 'bold 26px sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+      g.fillText(String.fromCharCode(65 + i) + (n - j), i * s + s / 2, j * s + s / 2);
+    }
+    g.strokeStyle = 'rgba(0,0,0,.35)'; g.lineWidth = 2; for (let k = 0; k <= n; k++) { g.beginPath(); g.moveTo(k * s, 0); g.lineTo(k * s, TS); g.stroke(); g.beginPath(); g.moveTo(0, k * s); g.lineTo(TS, k * s); g.stroke(); }
+  })();
+  const uv = [[0.15, 0.2], [0.8, 0.25], [0.45, 0.85]]; // (u, v), v up
+  const scr = [[0.12, 0.85], [0.9, 0.78], [0.42, 0.12]]; // normalized screen
+  let lw = 1, rw = 1, rh = 1;
+  const uvToL = q => [q[0] * lw, (1 - q[1]) * lw];
+  function solveAffine(s, d) { // find [a,b,c,dd,e,f] with d = [[a,c],[b,dd]] s + [e,f]
+    const M = s.map(p => [p[0], p[1], 1]);
+    const det3 = m => m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1]) - m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0]) + m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0]);
+    const D = det3(M);
+    const solve = rhs => [0, 1, 2].map(k => det3(M.map((row, r) => row.map((v, cc) => cc === k ? rhs[r] : v))) / D);
+    const X = solve(d.map(p => p[0])), Y = solve(d.map(p => p[1]));
+    return [X[0], Y[0], X[1], Y[1], X[2], Y[2]];
+  }
+  function draw() {
+    let r = fit(L, 1); const lc = r.ctx; lw = r.w;
+    lc.clearRect(0, 0, lw, lw); lc.drawImage(tex, 0, 0, lw, lw);
+    const lp = uv.map(uvToL);
+    lc.fillStyle = 'rgba(255,255,255,.18)'; lc.beginPath(); lp.forEach((p, i) => i ? lc.lineTo(p[0], p[1]) : lc.moveTo(p[0], p[1])); lc.closePath(); lc.fill();
+    lc.strokeStyle = '#111'; lc.lineWidth = 2.5; lc.stroke();
+    const names = ['a', 'b', 'c'], cols = ['#e24040', '#28b050', '#3460e8'];
+    lp.forEach((p, i) => handleDot(lc, p, names[i], cols[i]));
+    lc.fillStyle = 'rgba(0,0,0,.75)'; lc.font = '13px sans-serif'; lc.fillText('u →', lw - 36, lw - 8); lc.fillText('v ↑', 6, 16);
+    r = fit(Rc, 1); const rc = r.ctx; rw = r.w; rh = r.h; const d = r.d;
+    rc.clearRect(0, 0, rw, rh);
+    const sp = scr.map(q => [q[0] * rw, q[1] * rh]);
+    const texPts = uv.map(q => [q[0] * TS, (1 - q[1]) * TS]);
+    const A = solveAffine(texPts, sp);
+    rc.save(); rc.beginPath(); sp.forEach((p, i) => i ? rc.lineTo(p[0], p[1]) : rc.moveTo(p[0], p[1])); rc.closePath(); rc.clip();
+    rc.setTransform(d * A[0], d * A[1], d * A[2], d * A[3], d * A[4], d * A[5]); rc.drawImage(tex, 0, 0); rc.restore();
+    rc.setTransform(d, 0, 0, d, 0, 0);
+    rc.beginPath(); sp.forEach((p, i) => i ? rc.lineTo(p[0], p[1]) : rc.moveTo(p[0], p[1])); rc.closePath(); rc.strokeStyle = cssv('--text'); rc.lineWidth = 1.5; rc.stroke();
+    sp.forEach((p, i) => handleDot(rc, p, names[i] + "'", cols[i]));
+    // distortion: singular values of linear part (texture px -> screen px)
+    const a = A[0], b = A[1], cc = A[2], dd = A[3];
+    const E = a * a + b * b, Fv = a * cc + b * dd, G = cc * cc + dd * dd;
+    const tr = E + G, dt = E * G - Fv * Fv, disc = Math.sqrt(Math.max(0, tr * tr / 4 - dt));
+    const s1 = Math.sqrt(tr / 2 + disc), s2 = Math.sqrt(Math.max(1e-12, tr / 2 - disc));
+    const flip = (a * dd - b * cc) < 0;
+    $('#uv-stats').innerHTML = `從貼圖到畫面的線性部分的兩個奇異值：σ₁ = ${fmt(s1)}、σ₂ = ${fmt(s2)} 畫面像素／貼圖像素<br>` +
+      `拉伸比 σ₁／σ₂ = <b>${fmt(s1 / s2)}</b>（1.00＝形狀沒變，只是整體縮放；越大越扭曲）` + (flip ? '<br><span style="color:var(--bad)">兩邊頂點順序相反：貼圖被翻面了（對應法向量方向反過來）。</span>' : '');
+  }
+  redraws.push(draw);
+  draggable(L, () => uv.map(uvToL), (i, x, y) => { uv[i] = [Math.min(1, Math.max(0, x / lw)), Math.min(1, Math.max(0, 1 - y / lw))]; draw(); });
+  draggable(Rc, () => scr.map(q => [q[0] * rw, q[1] * rh]), (i, x, y) => { scr[i] = [Math.min(0.98, Math.max(0.02, x / rw)), Math.min(0.98, Math.max(0.02, y / rh))]; draw(); });
+  draw();
+})();
+
+// ================= Demo 4: soft rasterization =================
+(function () {
+  const g = $('#ras-grid'), pl = $('#ras-plot'), N = 14;
+  // the left edge is vertical, so a whole column of pixels flips at once and the hard-edge loss makes visible steps
+  const tri0 = [[3.5, 11.6], [11.4, 8.8], [3.5, 2.4]];
+  let dx = 1.6, sig = 0.45, mode = 'soft';
+  function segDist(p, a, b) { const ab = sub(b, a), t = Math.max(0, Math.min(1, dot(sub(p, a), ab) / dot(ab, ab))); return len(sub(p, add(a, ab.map(x => x * t)))); }
+  function sd(p, t) {
+    let dm = Infinity; for (let k = 0; k < 3; k++) dm = Math.min(dm, segDist(p, t[k], t[(k + 1) % 3]));
+    const s0 = cross2(sub(t[1], t[0]), sub(p, t[0])), s1 = cross2(sub(t[2], t[1]), sub(p, t[1])), s2 = cross2(sub(t[0], t[2]), sub(p, t[2]));
+    const inside = (s0 >= 0 && s1 >= 0 && s2 >= 0) || (s0 <= 0 && s1 <= 0 && s2 <= 0);
+    return inside ? -dm : dm;
+  }
+  function cover(off, soft, s) { const t = tri0.map(([x, y]) => [x + off, y]); const out = new Float64Array(N * N); for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) { const d = sd([i + 0.5, j + 0.5], t); out[j * N + i] = soft ? 1 / (1 + Math.exp(d / s)) : (d < 0 ? 1 : 0); } return out; }
+  const target = cover(0, false, 1);
+  function loss(off, soft, s) { const cv = cover(off, soft, s); let L = 0; for (let k = 0; k < cv.length; k++) L += (cv[k] - target[k]) ** 2; return L; }
+  function slope(off) { const h = 0.01; return (loss(off + h, mode === 'soft', sig) - loss(off - h, mode === 'soft', sig)) / (2 * h); }
+  function draw() {
+    $('#ras-dx-v').textContent = fmt(dx) + ' px'; $('#ras-sig-v').textContent = fmt(sig) + ' px';
+    let r = fit(g, 1); const ctx = r.ctx, w = r.w, cs = w / N;
+    const cv = cover(dx, mode === 'soft', sig), bg = parseColor(cssv('--surface-2')), fg = parseColor(cssv('--accent'));
+    for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) { ctx.fillStyle = rgb(mix(bg, fg, cv[j * N + i])); ctx.fillRect(i * cs, j * cs, cs + 0.5, cs + 0.5); }
+    ctx.strokeStyle = cssv('--wire'); ctx.lineWidth = 0.6; for (let k = 0; k <= N; k++) { ctx.beginPath(); ctx.moveTo(k * cs, 0); ctx.lineTo(k * cs, w); ctx.stroke(); ctx.beginPath(); ctx.moveTo(0, k * cs); ctx.lineTo(w, k * cs); ctx.stroke(); }
+    const drawTri = (off, dash, col, lw) => { ctx.setLineDash(dash); ctx.strokeStyle = col; ctx.lineWidth = lw; ctx.beginPath(); tri0.forEach(([x, y], k) => { const p = [(x + off) * cs, y * cs]; k ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1]); }); ctx.closePath(); ctx.stroke(); ctx.setLineDash([]); };
+    drawTri(0, [5, 4], cssv('--text-2'), 1.5); drawTri(dx, [], cssv('--accent-2'), 2.2);
+    // plot
+    r = fit(pl, 1); const pc = r.ctx, pw = r.w, ph = r.h, m = 34;
+    pc.clearRect(0, 0, pw, ph);
+    const xs = [], hard = [], soft = []; for (let k = 0; k <= 300; k++) { const x = -2.5 + 5 * k / 300; xs.push(x); hard.push(loss(x, false, sig)); soft.push(loss(x, true, sig)); }
+    const ymax = Math.max(...hard, ...soft) * 1.08 || 1;
+    const X = x => m + (x + 2.5) / 5 * (pw - m - 10), Y = y => ph - m - y / ymax * (ph - m - 14);
+    pc.strokeStyle = cssv('--line'); pc.lineWidth = 1; pc.beginPath(); pc.moveTo(m, 10); pc.lineTo(m, ph - m); pc.lineTo(pw - 8, ph - m); pc.stroke();
+    pc.fillStyle = cssv('--muted'); pc.font = '12px sans-serif'; pc.fillText('Loss', 4, 18); pc.fillText('位移（px）', pw - 70, ph - 10);
+    [-2, 0, 2].forEach(t => pc.fillText(String(t), X(t) - 4, ph - m + 15));
+    const line = (ys, col, w) => { pc.strokeStyle = col; pc.lineWidth = w; pc.beginPath(); ys.forEach((y, k) => k ? pc.lineTo(X(xs[k]), Y(y)) : pc.moveTo(X(xs[k]), Y(y))); pc.stroke(); };
+    line(hard, cssv('--muted'), mode === 'hard' ? 2.4 : 1.2); line(soft, cssv('--accent'), mode === 'soft' ? 2.4 : 1.2);
+    const cur = loss(dx, mode === 'soft', sig), sl = slope(dx);
+    pc.fillStyle = cssv('--accent-2'); pc.beginPath(); pc.arc(X(dx), Y(cur), 5, 0, 7); pc.fill();
+    // tangent
+    pc.strokeStyle = cssv('--accent-2'); pc.lineWidth = 1.2; pc.beginPath(); pc.moveTo(X(dx - 0.6), Y(cur - 0.6 * sl)); pc.lineTo(X(dx + 0.6), Y(cur + 0.6 * sl)); pc.stroke();
+    pc.font = '12px sans-serif'; pc.fillStyle = cssv('--accent'); pc.fillText('軟', pw - 30, 22); pc.fillStyle = cssv('--muted'); pc.fillText('硬', pw - 30, 38);
+    $('#ras-stats').innerHTML = `目前模式：<b>${mode === 'soft' ? '軟邊緣' : '硬邊緣'}</b>　Loss = <b>${fmt(cur, 3)}</b>　梯度 ∂Loss／∂位移 = <b>${fmt(sl, 3)}</b><br>` +
+      (mode === 'hard' ? (Math.abs(sl) < 1e-6 ? '梯度是 0：這裡是樓梯的平台，梯度下降完全不知道該往哪走。' : '剛好落在樓梯的邊上：梯度有值，但只在這一點，稍微移開就又是 0。') : '每一點都有斜率，梯度下降會一路滑到碗底（位移 ≈ 0，和影片對齊）。σ 越大碗越寬，離很遠也感覺得到；σ 太大邊緣太糊，碗底會變淺。');
+  }
+  redraws.push(draw);
+  $('#ras-dx').oninput = e => { dx = +e.target.value; draw(); };
+  $('#ras-sig').oninput = e => { sig = +e.target.value; draw(); };
+  document.querySelectorAll('input[name=ras-mode]').forEach(r => r.onchange = e => { mode = e.target.value; draw(); });
+  $('#ras-step').onclick = () => { const s = slope(dx); dx = Math.max(-2.5, Math.min(2.5, dx - 0.04 * s)); $('#ras-dx').value = dx; draw(); };
+  draw();
+})();
+
+// ================= Demo 5: forward kinematics =================
+(function () {
+  const c = $('#fk-c'), lens = [1, 0.8, 0.6];
+  const rot = a => [[Math.cos(a), -Math.sin(a), 0], [Math.sin(a), Math.cos(a), 0], [0, 0, 1]];
+  const tr = (x, y) => [[1, 0, x], [0, 1, y], [0, 0, 1]];
+  const mm = (A, B) => A.map((r, i) => B[0].map((_, j) => r.reduce((s, _, k) => s + A[i][k] * B[k][j], 0)));
+  const mv = (A, v) => A.map(r => r[0] * v[0] + r[1] * v[1] + r[2] * v[2]);
+  function chain(th) { const G = []; let prev = null; th.forEach((t, j) => { const Lj = mm(tr(j ? lens[j - 1] : 0, 0), rot(t)); G.push(prev ? mm(prev, Lj) : Lj); prev = G[j]; }); return G; }
+  const attach = [0.55 * lens[2], 0.16]; // point in bone-3 local coordinates
+  function draw() {
+    const th = [1, 2, 3].map(k => +$('#fk-t' + k).value * Math.PI / 180);
+    [1, 2, 3].forEach(k => $('#fk-t' + k + '-v').textContent = $('#fk-t' + k).value + '°');
+    const { ctx, w, h } = fit(c, 0.7); ctx.clearRect(0, 0, w, h);
+    const s = (Math.min(w, h) / 2 - 16) / 2.45, o = [w * 0.5, h * 0.5]; // the arm reaches 2.4 units in any direction
+    const S = p => [o[0] + p[0] * s, o[1] - p[1] * s];
+    const drawArm = (G, col, lw, dash) => {
+      ctx.setLineDash(dash); ctx.strokeStyle = col; ctx.lineWidth = lw; ctx.lineCap = 'round';
+      G.forEach((Gj, j) => { const a = S(mv(Gj, [0, 0, 1])), b = S(mv(Gj, [lens[j], 0, 1])); ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke(); });
+      ctx.setLineDash([]);
+    };
+    const B = chain([0, 0, 0]), G = chain(th);
+    drawArm(B, cssv('--muted'), 2, [6, 5]);
+    drawArm(G, cssv('--accent'), 9, []);
+    G.forEach((Gj, j) => { const a = S(mv(Gj, [0, 0, 1])); ctx.beginPath(); ctx.arc(a[0], a[1], 7, 0, 7); ctx.fillStyle = cssv('--surface'); ctx.fill(); ctx.lineWidth = 2.5; ctx.strokeStyle = cssv('--text'); ctx.stroke(); ctx.fillStyle = cssv('--text'); ctx.font = '600 13px sans-serif'; ctx.fillText('關節' + (j + 1), a[0] + 9, a[1] + 18); });
+    const pRest = mv(B[2], [...attach, 1]), pNow = mv(G[2], [...attach, 1]);
+    const pr = S(pRest), pn = S(pNow);
+    ctx.beginPath(); ctx.arc(pr[0], pr[1], 5, 0, 7); ctx.strokeStyle = cssv('--accent-2'); ctx.lineWidth = 1.5; ctx.stroke();
+    ctx.beginPath(); ctx.arc(pn[0], pn[1], 6, 0, 7); ctx.fillStyle = cssv('--accent-2'); ctx.fill();
+    ctx.beginPath(); const base = S([0, 0]); ctx.moveTo(base[0] - 14, base[1] + 10); ctx.lineTo(base[0] + 14, base[1] + 10); ctx.strokeStyle = cssv('--text-2'); ctx.lineWidth = 3; ctx.stroke();
+    const showM = (Mx, name) => `${name} = [ ${Mx.map(r => r.map(x => fmt(x).padStart(6)).join(' ')).join(' ; ')} ]`;
+    $('#fk-stats').innerHTML = `L₁ = R(θ₁)，　L₂ = T(1,0)·R(θ₂)，　L₃ = T(0.8,0)·R(θ₃)　（T＝沿父骨頭平移到它的末端）<br>` +
+      `G₁ = L₁，　G₂ = G₁·L₂，　G₃ = G₂·L₃<br>${showM(G[0], 'G₁')}<br>${showM(G[1], 'G₂')}<br>${showM(G[2], 'G₃')}<br>` +
+      `橘點：靜止時在 (${fmt(pRest[0])}, ${fmt(pRest[1])})（空心圈），現在 = G₃·B₃⁻¹·(靜止位置) = (<b>${fmt(pNow[0])}, ${fmt(pNow[1])}</b>)`;
+  }
+  redraws.push(draw);
+  [1, 2, 3].forEach(k => $('#fk-t' + k).oninput = draw);
+  draw();
+})();
+
+// ================= Demo 6: LBS vs ARAP =================
+(function () {
+  const c = $('#lbs-c'); io.observe(c);
+  const nx = 41, ny = 7, Lx = 2, Hy = 0.3;
+  const P = []; for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) P.push([i / (nx - 1) * Lx, -Hy / 2 + j / (ny - 1) * Hy]);
+  const T = []; for (let j = 0; j < ny - 1; j++) for (let i = 0; i < nx - 1; i++) { const a = j * nx + i, b = a + 1, cc = a + nx, d = cc + 1; T.push([a, b, d], [a, d, cc]); }
+  const nbS = P.map(() => new Set()); for (const t of T) for (let k = 0; k < 3; k++) { const a = t[k], b = t[(k + 1) % 3]; nbS[a].add(b); nbS[b].add(a); }
+  const NB = nbS.map(s => [...s]); const n = P.length;
+  let theta = 70, wid = 0.35, showW = false, arapOn = false, lam = Math.pow(10, -2.5);
+  let Y = P.map(p => p.slice()), X = P.map(p => p.slice()), dirty = 0;
+  const w1 = x => { const t = Math.min(1, Math.max(0, (x - (1 - wid / 2)) / wid)); return t * t * (3 - 2 * t); };
+  function lbs() {
+    const th = theta * Math.PI / 180, c0 = Math.cos(th), s0 = Math.sin(th);
+    Y = P.map(([x, y]) => { const b = w1(x), a = 1 - b; const rx = 1 + c0 * (x - 1) - s0 * y, ry = s0 * (x - 1) + c0 * y; return [a * x + b * rx, a * y + b * ry]; });
+  }
+  function arap(outer, sweeps) {
+    const cs = new Float64Array(n), sn = new Float64Array(n), bx = new Float64Array(n), by = new Float64Array(n);
+    for (let it = 0; it < outer; it++) {
+      for (let i = 0; i < n; i++) { let A = 0, B = 0; for (const j of NB[i]) { const ex = P[i][0] - P[j][0], ey = P[i][1] - P[j][1], fx = X[i][0] - X[j][0], fy = X[i][1] - X[j][1]; A += fx * ex + fy * ey; B += fy * ex - fx * ey; } const ph = Math.atan2(B, A); cs[i] = Math.cos(ph); sn[i] = Math.sin(ph); }
+      for (let i = 0; i < n; i++) { let sx = 0, sy = 0; for (const j of NB[i]) { const ex = P[i][0] - P[j][0], ey = P[i][1] - P[j][1], c2 = cs[i] + cs[j], s2 = sn[i] + sn[j]; sx += 0.5 * (c2 * ex - s2 * ey); sy += 0.5 * (s2 * ex + c2 * ey); } bx[i] = sx; by[i] = sy; }
+      for (let s = 0; s < sweeps; s++) for (let i = 0; i < n; i++) {
+        let sx = 0, sy = 0; for (const j of NB[i]) { sx += X[j][0]; sy += X[j][1]; }
+        const dg = NB[i].length + lam, gx = (sx + bx[i] + lam * Y[i][0]) / dg, gy = (sy + by[i] + lam * Y[i][1]) / dg;
+        X[i][0] += 1.6 * (gx - X[i][0]); X[i][1] += 1.6 * (gy - X[i][1]);
+      }
+    }
+  }
+  function strains(V) { return T.map(t => { let m = 0; for (let k = 0; k < 3; k++) { const a = t[k], b = t[(k + 1) % 3]; const l0 = Math.hypot(P[a][0] - P[b][0], P[a][1] - P[b][1]), l1 = Math.hypot(V[a][0] - V[b][0], V[a][1] - V[b][1]); m = Math.max(m, Math.abs(l1 / l0 - 1)); } return m; }); }
+  function draw() {
+    $('#lbs-th-v').textContent = theta + '°'; $('#lbs-w-v').textContent = fmt(wid); $('#lbs-lam-v').textContent = lam.toPrecision(2);
+    const V = arapOn ? X : Y;
+    const { ctx, w, h } = fit(c, 0.62); ctx.clearRect(0, 0, w, h);
+    const s = Math.min(w / 2.5, h / 2.55), jx = w * 0.56, jy = h * 0.52;
+    const S = p => [jx + (p[0] - 1) * s, jy - p[1] * s];
+    const st = strains(V), bg = parseColor(cssv('--tube')), red = parseColor(cssv('--bad'));
+    const c0 = parseColor(cssv('--accent')), c1 = parseColor(cssv('--accent-2'));
+    T.forEach((t, k) => {
+      const pts = t.map(i => S(V[i]));
+      ctx.beginPath(); ctx.moveTo(pts[0][0], pts[0][1]); ctx.lineTo(pts[1][0], pts[1][1]); ctx.lineTo(pts[2][0], pts[2][1]); ctx.closePath();
+      if (showW) { const wb = (w1(P[t[0]][0]) + w1(P[t[1]][0]) + w1(P[t[2]][0])) / 3; ctx.fillStyle = rgb(mix(c0, c1, wb)); }
+      else ctx.fillStyle = rgb(mix(bg, red, Math.min(1, st[k] / 0.3)));
+      ctx.fill(); ctx.strokeStyle = cssv('--wire'); ctx.lineWidth = 0.5; ctx.stroke();
+    });
+    // bones
+    const th = theta * Math.PI / 180, end = [1 + Math.cos(th), Math.sin(th)];
+    ctx.strokeStyle = cssv('--text'); ctx.lineWidth = 3; ctx.lineCap = 'round';
+    [[[0, 0], [1, 0]], [[1, 0], end]].forEach(([a, b]) => { const A = S(a), B = S(b); ctx.beginPath(); ctx.moveTo(A[0], A[1]); ctx.lineTo(B[0], B[1]); ctx.stroke(); });
+    [[0, 0], [1, 0]].forEach(p => { const q = S(p); ctx.beginPath(); ctx.arc(q[0], q[1], 5, 0, 7); ctx.fillStyle = cssv('--text'); ctx.fill(); });
+    const sorted = [...st].sort((a, b) => b - a), p99 = sorted[Math.floor(sorted.length * 0.01)];
+    let move = 0; for (let i = 0; i < n; i++) move += Math.hypot(X[i][0] - Y[i][0], X[i][1] - Y[i][1]); move /= n;
+    const half = Math.abs(Math.cos(th / 2));
+    $('#lbs-legend').innerHTML = showW ? `<span><i style="background:${cssv('--accent')}"></i>只黏骨頭 1（w₂ = 0）</span><span><i style="background:${cssv('--accent-2')}"></i>只黏骨頭 2（w₂ = 1）</span><span>中間顏色＝兩根都黏一點</span>`
+      : `<span><i style="background:${cssv('--tube')};border:1px solid ${cssv('--line')}"></i>沒拉伸</span><span><i style="background:${cssv('--bad')}"></i>拉長或壓縮 ≥ 30%</span>`;
+    $('#lbs-stats').innerHTML = `${arapOn ? '<b>ARAP</b>' : '<b>LBS</b>'}：最大拉伸 <b>${(sorted[0] * 100).toFixed(1)}%</b>　前 1% 拉伸 <b>${(p99 * 100).toFixed(1)}%</b>` +
+      (arapOn ? `　和 LBS 的平均距離 ${(move / Lx * 100).toFixed(2)}% 管長` : '') +
+      `<br>權重各半處，LBS 的平均矩陣是 cos(θ/2)·R(θ/2)：這裡會縮成 <b>${half.toFixed(2)}</b> 倍。` +
+      `<br>${wid < 0.15 ? '過渡帶很窄：∇w 很大，兩根骨頭一分開，窄帶被硬拉長（Jacobian 第二項）。' : wid > 1 ? '過渡帶很寬：一大片都是兩根骨頭的平均，內側整片縮水（Jacobian 第一項）。' : '中等寬度：兩種效應都有一點。'}`;
+  }
+  function update() { lbs(); X = Y.map(p => p.slice()); if (arapOn) dirty = 60; draw(); }
+  redraws.push(draw);
+  $('#lbs-th').oninput = e => { theta = +e.target.value; update(); };
+  $('#lbs-w').oninput = e => { wid = +e.target.value; update(); };
+  $('#lbs-showw').onchange = e => { showW = e.target.checked; draw(); };
+  $('#lbs-arap').onchange = e => { arapOn = e.target.checked; update(); };
+  $('#lbs-lam').oninput = e => { lam = Math.pow(10, +e.target.value); if (arapOn) dirty = 60; draw(); };
+  function loop() { if (arapOn && dirty > 0 && isVis(c)) { arap(6, 12); dirty--; draw(); } requestAnimationFrame(loop); }
+  update(); requestAnimationFrame(loop);
+})();
+
+// ================= Demo 7: toy inverse rendering =================
+(function () {
+  const c = $('#inv-c'), pl = $('#inv-plot'), lens = [1, 0.8, 0.6], tot = 2.4, K = 6;
+  let target = [0.9, -1.2, 1.4], th = [0, 0, 0], hist = [], running = false, iter = 0;
+  function pts(t) { const out = []; let a = 0, p = [0, 0]; t.forEach((tj, j) => { a += tj; for (let k = 1; k <= K; k++) out.push([p[0] + Math.cos(a) * lens[j] * k / K, p[1] + Math.sin(a) * lens[j] * k / K]); p = [p[0] + Math.cos(a) * lens[j], p[1] + Math.sin(a) * lens[j]]; }); return out; }
+  let tp = pts(target);
+  function loss(t) { const p = pts(t); let L = 0; p.forEach((q, i) => { L += (q[0] - tp[i][0]) ** 2 + (q[1] - tp[i][1]) ** 2; }); return L / p.length / (tot * tot); }
+  function grad(t) { const e = 1e-4; return t.map((_, k) => { const a = t.slice(), b = t.slice(); a[k] += e; b[k] -= e; return (loss(a) - loss(b)) / (2 * e); }); }
+  function step() { const g = grad(th), lr = +$('#inv-lr').value; th = th.map((x, k) => x - lr * g[k]); iter++; hist.push(loss(th)); if (hist.length > 400) hist.shift(); }
+  function draw() {
+    $('#inv-lr-v').textContent = (+$('#inv-lr').value).toFixed(1);
+    let r = fit(c, 1); const ctx = r.ctx, w = r.w, s = w / 5.4, o = [w / 2, w / 2];
+    const S = p => [o[0] + p[0] * s, o[1] - p[1] * s];
+    ctx.clearRect(0, 0, w, w);
+    const arm = (t, col, lw) => { let a = 0, p = [0, 0]; ctx.strokeStyle = col; ctx.lineWidth = lw; ctx.lineCap = 'round'; ctx.beginPath(); ctx.moveTo(...S(p)); t.forEach((tj, j) => { a += tj; p = [p[0] + Math.cos(a) * lens[j], p[1] + Math.sin(a) * lens[j]]; ctx.lineTo(...S(p)); }); ctx.stroke(); };
+    arm(target, cssv('--muted'), 14);
+    const cp = pts(th);
+    ctx.strokeStyle = cssv('--wire'); ctx.lineWidth = 1; cp.forEach((q, i) => { const a = S(q), b = S(tp[i]); ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke(); });
+    arm(th, cssv('--accent'), 5);
+    cp.forEach(q => { const a = S(q); ctx.beginPath(); ctx.arc(a[0], a[1], 2.6, 0, 7); ctx.fillStyle = cssv('--accent'); ctx.fill(); });
+    r = fit(pl, 1); const pc = r.ctx, pw = r.w, ph = r.h, m = 34; pc.clearRect(0, 0, pw, ph);
+    pc.strokeStyle = cssv('--line'); pc.beginPath(); pc.moveTo(m, 10); pc.lineTo(m, ph - m); pc.lineTo(pw - 8, ph - m); pc.stroke();
+    pc.fillStyle = cssv('--muted'); pc.font = '12px sans-serif'; pc.fillText('log₁₀ Loss', 4, 18); pc.fillText('迭代', pw - 40, ph - 10);
+    if (hist.length > 1) {
+      const lo = -6, hi = 0.5, Yp = v => ph - m - (Math.max(lo, Math.min(hi, Math.log10(v + 1e-12))) - lo) / (hi - lo) * (ph - m - 14);
+      pc.strokeStyle = cssv('--accent'); pc.lineWidth = 2; pc.beginPath(); hist.forEach((v, k) => { const x = m + k / Math.max(60, hist.length - 1) * (pw - m - 12); k ? pc.lineTo(x, Yp(v)) : pc.moveTo(x, Yp(v)); }); pc.stroke();
+      [-6, -4, -2, 0].forEach(t => pc.fillText(String(t), 8, Yp(Math.pow(10, t)) + 4));
+    }
+    const deg = a => (a * 180 / Math.PI).toFixed(1).padStart(7);
+    const L = loss(th);
+    $('#inv-stats').innerHTML = `迭代 <b>${iter}</b>　Loss = <b>${L.toExponential(2)}</b><br>我們的 θ = (${th.map(deg).join(',')})°<br>` +
+      (L < 1e-5 ? `答案　 θ* = (${target.map(deg).join(',')})°　← 猜到了（角度可能差 360° 的整數倍）` : '目標姿勢藏起來了，只能靠 Loss 的梯度去猜。') +
+      (hist.length > 3 && hist[hist.length - 1] > hist[hist.length - 2] * 1.5 ? '<br><span style="color:var(--bad)">Loss 變大了：學習率太大，每一步跨過了谷底。</span>' : '');
+  }
+  redraws.push(draw);
+  function loop() { if (running) { for (let k = 0; k < 2; k++) step(); draw(); if (loss(th) < 1e-9 || iter > 3000) { running = false; $('#inv-run').textContent = '開始'; } } requestAnimationFrame(loop); }
+  $('#inv-run').onclick = () => { running = !running; $('#inv-run').textContent = running ? '暫停' : '開始'; };
+  $('#inv-step').onclick = () => { step(); draw(); };
+  $('#inv-reset').onclick = () => { th = [0, 0, 0]; hist = []; iter = 0; draw(); };
+  $('#inv-new').onclick = () => { target = [0, 0, 0].map(() => (Math.random() * 2 - 1) * 2.2); tp = pts(target); th = [0, 0, 0]; hist = []; iter = 0; draw(); };
+  $('#inv-lr').oninput = draw;
+  draw(); requestAnimationFrame(loop);
+})();
+
+// ================= Quiz =================
+(function () {
+  const Q = [
+    { q: '一個封閉、沒有洞的三角網格有 1,000 個頂點，大約有幾個三角形？', o: ['約 1,000', '約 2,000', '約 3,000', '無法從頂點數推出來'], a: 1,
+      e: '封閉曲面 3F = 2E，加上 V − E + F = 2，推得 F = 2V − 4 ≈ 2,000。貓：30,002 個頂點、60,000 個三角形。' },
+    { q: '動畫播放時，下面哪一個陣列會隨著每一幀改變？', o: ['F（三角形）', 'UV', 'V（頂點位置）', 'W（蒙皮權重）'], a: 2,
+      e: '只有頂點位置會變。拓樸、UV、貼圖、權重都固定，所以動畫＝找一個函數 θₜ ↦ V(t)。' },
+    { q: '貓的 glTF 檔有 179,896 個頂點，焊接後只剩 30,002 個。主要原因是？', o: ['模型被細分了 6 次', '同一個位置在不同三角形需要不同 UV 等屬性，只好拆成多個頂點', 'UniRig 加了新的頂點', '浮點誤差'], a: 1,
+      e: 'glTF 一個頂點只能有一組屬性；接縫兩側 UV 不同就得拆開。做幾何運算前要焊接回來，不然接縫兩邊會被當成不相連而裂開。' },
+    { q: '傳統（硬邊緣）光柵化為什麼不能直接拿來做梯度下降？', o: ['太慢', '覆蓋率是 0／1 的跳躍函數，對頂點位置的梯度幾乎處處為 0', '它不支援貼圖', '它只能在 GPU 上跑'], a: 1,
+      e: '頂點稍微動一下，沒有像素改變，梯度 0；剛好跨過像素中心時才突然跳。軟光柵化用 sigmoid 讓覆蓋率連續，梯度才傳得回來（實驗 4）。' },
+    { q: '兩根骨頭相對轉了 120°，在權重各 0.5 的地方，LBS 會把皮縮成原來的幾倍？', o: ['1 倍（不會縮）', 'cos 60° = 0.5 倍', 'cos 120° = −0.5 倍', '0 倍'], a: 1,
+      e: '½(I + R(θ)) = cos(θ/2)·R(θ/2)，θ = 120° → cos 60° = 0.5。這就是 candy-wrapper：θ = 180° 時縮成 0。' },
+    { q: '我們把 Stage 1 的骨頭小位移全部歸零重算，拉扯沒有變少。這說明什麼？', o: ['骨頭位移是拉扯的主因', '拉扯來自 LBS 混合不同骨頭的方式，不是來自位移', 'ARAP 沒有用', 'UniRig 的骨架錯了'], a: 1,
+      e: '控制變因實驗：拿掉位移、拉扯不變，所以元兇在別處。再配合權重平滑的實驗，確定是 LBS 在混合區造成的（Jacobian 的兩項）。' },
+    { q: 'ARAP 的 λ 調小，會怎樣？', o: ['更貼近 LBS 的結果，拉扯變多', '每一小塊更接近剛體，拉扯變少，但離原本的動作更遠', '沒有影響', '計算會變快'], a: 1,
+      e: 'λ 是「要貼近 LBS」那一項的權重。λ 小 → 剛性那一項主導。貓：λ = 0.01 時輪廓幾乎不變；λ = 0.001 拉扯更少，但輪廓 IoU 降了 0.0055。' },
+    { q: '為什麼 Stage 1 用 6D 表示旋轉，而不是 Euler 角或四元數？', o: ['6D 比較省記憶體', '3 維和 4 維的表示不可能處處連續；6D 是連續的，對梯度優化友善', '因為 UniRig 規定', '6D 可以表示縮放'], a: 1,
+      e: 'Zhou et al. 2019 證明了這件事。Euler 角有 gimbal lock，四元數有 q 與 −q 的雙重覆蓋，都會讓優化在某些地方卡住或跳動。' },
+  ];
+  const box = $('#quiz');
+  Q.forEach((item, qi) => {
+    const d = document.createElement('div'); d.className = 'q';
+    d.innerHTML = `<p>${qi + 1}. ${item.q}</p><div class="opts"></div><div class="exp"></div>`;
+    const opts = d.querySelector('.opts');
+    item.o.forEach((t, oi) => {
+      const b = document.createElement('button'); b.textContent = String.fromCharCode(65 + oi) + '. ' + t;
+      b.onclick = () => {
+        opts.querySelectorAll('button').forEach((x, k) => { x.classList.remove('right', 'wrong'); if (k === item.a) x.classList.add('right'); });
+        if (oi !== item.a) b.classList.add('wrong');
+        d.querySelector('.exp').innerHTML = (oi === item.a ? '<b style="color:var(--good)">答對了。</b>' : '<b style="color:var(--bad)">不對，正確答案是 ' + String.fromCharCode(65 + item.a) + '。</b>') + ' ' + item.e;
+        d.classList.add('done');
+      };
+      opts.appendChild(b);
+    });
+    box.appendChild(d);
+  });
+})();
+</script>
+</body>
+</html>
