@@ -1,0 +1,113 @@
+<title>AniMimic 馬動作重現</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&family=Space+Grotesk:wght@500;700&display=swap">
+<style>
+/* Layout: one column of result rows; each row pairs Before FEM / After FEM videos, stacking on phones. */
+:root {
+  --bg: #f4f5f6;
+  --fg: #1c1e22;
+  --muted: #5d636c;
+  --line: #dcdfe3;
+  --accent: #8a4a2c;
+  --on-accent: #ffffff;
+  --font-display: "Space Grotesk", "Noto Sans TC", system-ui, sans-serif;
+  --font-body: "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", system-ui, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #15171a; --fg: #e9eaec; --muted: #9aa1aa; --line: #30343a; --accent: #d8946f; --on-accent: #15171a;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #15171a; --fg: #e9eaec; --muted: #9aa1aa; --line: #30343a; --accent: #d8946f; --on-accent: #15171a;
+  color-scheme: dark;
+}
+body { background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: 15px; line-height: 1.6; }
+.wrap {
+  max-width: 1180px; margin: 0 auto;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 40px 64px;
+  display: grid; gap: 36px;
+}
+h1 { font-family: var(--font-display); font-weight: 700; font-size: clamp(28px, 4.2vw, 40px); line-height: 1.2; margin: 0; text-wrap: balance; }
+section { display: grid; gap: 12px; padding-top: 24px; border-top: 1px solid var(--line); }
+.head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; }
+h2 { font-family: var(--font-display); font-size: 22px; font-weight: 700; margin: 0; }
+.pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+figure { margin: 0; display: grid; gap: 6px; min-width: 0; }
+figcaption { font-size: 14px; font-weight: 500; color: var(--muted); }
+video {
+  display: block; width: 100%; max-width: 100%; height: auto; aspect-ratio: 3072 / 1968;
+  background: #ffffff; border: 1px solid var(--line); border-radius: 6px;
+}
+button.sync {
+  font: inherit; font-size: 13px; font-weight: 500; cursor: pointer;
+  padding: 6px 14px; border-radius: 6px; border: 1px solid var(--accent);
+  background: var(--accent); color: var(--on-accent);
+}
+button.sync:hover { filter: brightness(1.08); }
+button.sync:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+@media (max-width: 720px) { .pair { grid-template-columns: minmax(0, 1fr); } }
+@media (prefers-reduced-motion: reduce) { button.sync:hover { filter: none; } }
+</style>
+
+<div class="wrap">
+  <h1>AniMimic 馬動作重現</h1>
+
+  <section aria-labelledby="r1">
+    <div class="head"><h2 id="r1">馬低頭</h2><button class="sync" type="button" id="sync-1">同步播放</button></div>
+    <div class="pair">
+      <figure><figcaption>Before FEM（only step 1）</figcaption>
+        <video src="1-ltx-head-down_joint.mp4" controls muted loop playsinline preload="metadata"></video></figure>
+      <figure><figcaption>After FEM（full pipeline）</figcaption>
+        <video src="1-ltx-head-down_physics.mp4" controls muted loop playsinline preload="metadata"></video></figure>
+    </div>
+  </section>
+
+  <section aria-labelledby="r2">
+    <div class="head"><h2 id="r2">張嘴</h2><button class="sync" type="button" id="sync-2">同步播放</button></div>
+    <div class="pair">
+      <figure><figcaption>Before FEM（only step 1）</figcaption>
+        <video src="2-wan-mouth_joint.mp4" controls muted loop playsinline preload="metadata"></video></figure>
+      <figure><figcaption>After FEM（full pipeline）</figcaption>
+        <video src="2-wan-mouth_physics.mp4" controls muted loop playsinline preload="metadata"></video></figure>
+    </div>
+  </section>
+
+  <section aria-labelledby="r3">
+    <div class="head"><h2 id="r3">抬左前腳</h2><button class="sync" type="button" id="sync-3">同步播放</button></div>
+    <div class="pair">
+      <figure><figcaption>Before FEM（only step 1）</figcaption>
+        <video src="3-wan-left-foreleg_joint.mp4" controls muted loop playsinline preload="metadata"></video></figure>
+      <figure><figcaption>After FEM（full pipeline）</figcaption>
+        <video src="3-wan-left-foreleg_physics.mp4" controls muted loop playsinline preload="metadata"></video></figure>
+    </div>
+  </section>
+
+  <section aria-labelledby="r4">
+    <div class="head"><h2 id="r4">舉尾巴</h2><button class="sync" type="button" id="sync-4">同步播放</button></div>
+    <div class="pair">
+      <figure><figcaption>Before FEM（only step 1）</figcaption>
+        <video src="4-wan-tail_joint.mp4" controls muted loop playsinline preload="metadata"></video></figure>
+      <figure><figcaption>After FEM（full pipeline）</figcaption>
+        <video src="4-wan-tail_physics.mp4" controls muted loop playsinline preload="metadata"></video></figure>
+    </div>
+  </section>
+</div>
+
+<script>
+document.querySelectorAll("button.sync").forEach(function (button) {
+  button.addEventListener("click", function () {
+    var videos = button.closest("section").querySelectorAll("video");
+    videos.forEach(function (video) { video.pause(); video.currentTime = 0; });
+    videos.forEach(function (video) {
+      var played = video.play();
+      if (played && played.catch) played.catch(function () {});
+    });
+  });
+});
+</script>
