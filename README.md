@@ -450,6 +450,15 @@ video:
 
 GLB 必須有 mesh、skeleton、inverse bind matrices 與 skinning weights。
 `reference_video` 只跳過生成，後續 supervision / optimization 仍使用 GPU。
+同一個模型和相機設定有多支影片時，可直接指定影片資料夾：
+
+```bash
+CUDA_VISIBLE_DEVICES=1 bash scripts/08_run_pipeline.sh configs/horse.yaml --video-dir inputs
+```
+
+程式會依檔名順序執行資料夾內的 MP4，每支影片各有一個 run。
+可加 `--until-stage supervision --debug-images` 先檢查整批影片的觀測圖。
+
 影片與 mesh 應是同一角色、相近起始姿勢與固定視角。
 若要調整自訂模型朝向，可設定 `asset_rotation: [-90, 0, 0]`
 （XYZ 角度）；請先看 preview 確認實際朝向。

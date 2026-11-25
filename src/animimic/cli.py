@@ -2,6 +2,7 @@ import argparse
 import importlib.util
 import json
 import shutil
+import sys
 import urllib.request
 from pathlib import Path
 
@@ -95,6 +96,8 @@ def main():
     run.add_argument("--from-stage")
     run.add_argument("--until-stage", choices=("render", "video", "supervision", "joints"))
     run.add_argument("--force-stage")
+    run.add_argument("--video-dir", type=Path,
+                     help="Run the pipeline once for each MP4 in this directory")
     run.add_argument("--debug-images", action="store_true",
                      help="Export per-frame tracker, SAM2 mask and VGGT depth images")
     run.add_argument("--video-backend", choices=("wan", "ltx"))
@@ -138,8 +141,29 @@ def main():
                 original = config["video"]
                 config["video"] = {k: original[k] for k in keep if k in original}
                 config["video"]["backend"] = args.video_backend
-        print(run(config, args.force_stage, args.from_stage, args.until_stage,
-                  debug_images=args.debug_images))
+        run_options = dict(force_stage=args.force_stage, from_stage=args.from_stage,
+                           until_stage=args.until_stage, debug_images=args.debug_images)
+        if args.video_dir is None:
+            print(run(config, **run_options))
+        else:
+            if not args.video_dir.is_dir():
+                parser.error(f"Video directory does not exist: {args.video_dir}")
+            videos = sorted(p for p in args.video_dir.iterdir()
+                            if p.is_file() and p.suffix.lower() == ".mp4")
+            if not videos:
+                parser.error(f"No MP4 files in {args.video_dir}")
+            failed = []
+            for index, video in enumerate(videos, 1):
+                print(f"[batch {index}/{len(videos)}] {video.name}", flush=True)
+                try:
+                    output = run({**config, "reference_video": str(video.resolve())}, **run_options)
+                except Exception as error:
+                    failed.append(video.name)
+                    print(f"[batch] Failed {video.name}: {error}", file=sys.stderr, flush=True)
+                else:
+                    print(f"[batch] {video.name} → {output}", flush=True)
+            if failed:
+                raise SystemExit(f"[batch] {len(failed)} failed: {', '.join(failed)}")
     elif args.command == "video":
         from .video_backends import generate_video
         from .core import Cache

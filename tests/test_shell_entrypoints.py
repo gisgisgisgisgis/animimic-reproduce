@@ -175,6 +175,11 @@ class ShellEntrypointTests(unittest.TestCase):
         record, _ = self.invoke("08_run_pipeline.sh", ["--until-stage", "video"])
         self.assertEqual(record["args"][-2:], ["--until-stage", "video"])
 
+    def test_batch_video_dir_is_relative_to_caller(self):
+        for args in (["--video-dir", "my inputs"], ["--video-dir=my inputs"]):
+            record, caller = self.invoke("08_run_pipeline.sh", args)
+            self.assertEqual(record["args"][-1].split("=")[-1], str(caller/"my inputs"))
+
     def test_video_keeps_caller_relative_paths_with_spaces(self):
         record, caller = self.invoke("07_generate_video.sh",
             ["input image.png", "my config.yaml", "my output.mp4"])
