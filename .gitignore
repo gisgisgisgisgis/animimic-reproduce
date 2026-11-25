@@ -3,6 +3,7 @@ __pycache__/
 .venv/
 .cache/
 runs/
+/inputs/
 assets/downloads/
 weights/
 third_party/
