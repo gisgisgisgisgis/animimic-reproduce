@@ -57,7 +57,7 @@ class VideoBackendTests(unittest.TestCase):
     def test_full_quality_cpu_export_keeps_generation_settings(self):
         from animimic.models import generate_video as generate_wan
         root = Path(__file__).resolve().parents[1]
-        config = load_config(root/'configs/experiments/horse-textured-wan-leftforeleg-grouped-tracks.yaml')
+        config = load_config(root/'configs/horse.yaml')
         video = config['video']
         self.assertTrue(video['cpu_export'])
         self.assertFalse(video['use_negative_prompt'])

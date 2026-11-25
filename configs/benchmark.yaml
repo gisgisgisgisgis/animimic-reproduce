@@ -3,4 +3,4 @@ configs:
   - configs/fox.yaml
   - configs/humanoid.yaml
   - configs/robot.yaml
-  - configs/experiments/horse-textured-wan-leftforeleg-grouped-tracks.yaml
+  - configs/horse.yaml

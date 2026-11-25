@@ -7,7 +7,7 @@ bash scripts/08_run_pipeline.sh --until-stage render
 bash scripts/08_run_pipeline.sh --until-stage video
 ```
 
-預設設定是 `configs/experiments/horse-textured-wan-leftforeleg-grouped-tracks.yaml`，生成 121 幀、24 fps 的參考影片。換一個動作時，複製設定並修改 `video.prompt`。已經有影片時，在設定加入 `reference_video`。
+預設設定是 `configs/horse.yaml`，生成 121 幀、24 fps 的參考影片。換一個動作時，複製設定並修改 `video.prompt`。已經有影片時，在設定加入 `reference_video`。
 
 確認影片後，用同一份設定執行完整流程，讓 pipeline 使用前面生成的影片快取。
 

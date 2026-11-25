@@ -35,7 +35,7 @@ bash scripts/08_run_pipeline.sh configs/experiments/horse-textured-wan-leftforel
 ## 先跑到 joint，不執行 FEM
 
 ```bash
-CUDA_VISIBLE_DEVICES=1 bash scripts/08_run_pipeline.sh configs/experiments/horse-textured-wan-leftforeleg-grouped-tracks.yaml --until-stage joints
+CUDA_VISIBLE_DEVICES=1 bash scripts/08_run_pipeline.sh configs/horse.yaml --until-stage joints
 ```
 
 已完成且相符的前置階段會命中快取。若希望前置階段必須已經有快取，

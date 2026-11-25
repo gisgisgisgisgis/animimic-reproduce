@@ -39,15 +39,15 @@ bash scripts/08_run_pipeline.sh --until-stage render
 bash scripts/08_run_pipeline.sh --until-stage video
 # 確認影片合格後才繼續：
 bash scripts/04_build_tetwild.sh
-bash scripts/06_check.sh configs/experiments/horse-textured-wan-leftforeleg-grouped-tracks.yaml
-bash scripts/08_run_pipeline.sh configs/experiments/horse-textured-wan-leftforeleg-grouped-tracks.yaml
+bash scripts/06_check.sh configs/horse.yaml
+bash scripts/08_run_pipeline.sh configs/horse.yaml
 ```
 
 影片預覽預設使用有 2K 毛色貼圖的新馬（`horse_textured`），生成約 5 秒影片
 （121 幀、24 fps），輸出位置會印在終端機：
 `runs/horse_textured/<run-id>/canonical.png`、`reference.mp4` 與 `video-review.jpg`。
 先確認只有一匹馬、動作確實發生、沒有整隻滑走、外形和鏡頭穩定，再執行完整流程。
-若影片不合格，修改 `configs/experiments/horse-textured-wan-leftforeleg-grouped-tracks.yaml` 的 prompt 或 seed 後重跑影片預覽。
+若影片不合格，修改 `configs/horse.yaml` 的 prompt 或 seed 後重跑影片預覽。
 確認後用同一份 YAML 跑 `08`，會共用影片快取，不需重新生成。
 
 舊的 `horse` 是純色材質的帶鞍模型，沒有毛色貼圖細節，保留作流程除錯；
@@ -81,7 +81,7 @@ bash scripts/08_run_pipeline.sh configs/experiments/horse-textured-wan-leftforel
 ```bash
 bash scripts/08_run_pipeline.sh --help
 bash scripts/05_fetch_assets.sh horse puppy shark
-bash scripts/08_run_pipeline.sh configs/experiments/horse-textured-wan-leftforeleg-grouped-tracks.yaml --from-stage joints
+bash scripts/08_run_pipeline.sh configs/horse.yaml --from-stage joints
 bash scripts/10_tests.sh
 ```
 
@@ -93,7 +93,7 @@ bash scripts/10_tests.sh
 GPU 編號、下載快取位置和編譯平行度都可由外部設定，既有設定會保留：
 
 ```bash
-CUDA_VISIBLE_DEVICES=0 bash scripts/08_run_pipeline.sh configs/experiments/horse-textured-wan-leftforeleg-grouped-tracks.yaml
+CUDA_VISIBLE_DEVICES=0 bash scripts/08_run_pipeline.sh configs/horse.yaml
 MAX_JOBS=1 bash scripts/03_install_pipeline.sh wan
 # 只有在使用其他已存在的 Python 環境時才需要：
 ANIMIMIC_ENV_DIR="$HOME/miniforge3/envs/animimic" bash scripts/06_check.sh
@@ -335,7 +335,7 @@ animimic assets list
 animimic assets fetch --asset horse
 animimic inspect assets/downloads/horse/model.glb
 animimic assets preview --asset horse --output runs/asset-previews
-animimic preflight --config configs/experiments/horse-textured-wan-leftforeleg-grouped-tracks.yaml
+animimic preflight --config configs/horse.yaml
 ```
 
 資產會存到 `assets/downloads/horse/`，包含 GLB、hash 與 attribution manifest。
@@ -346,7 +346,7 @@ preflight 會檢查完整 pipeline 的套件、repo、CUDA 與 fTetWild；
 ### 6.5 開始執行
 
 ```bash
-bash scripts/08_run_pipeline.sh configs/experiments/horse-textured-wan-leftforeleg-grouped-tracks.yaml
+bash scripts/08_run_pipeline.sh configs/horse.yaml
 ```
 
 完整流程依序是 `prepare → render → video → supervision → joints → tetrahedralize → physics → export`。
@@ -357,7 +357,7 @@ Stage 1 用這些觀測擬合骨架，Stage 2 以骨架動作為邊界條件進�
 只想檢查觀測資料時，可跑到 supervision 並開啟除錯圖。
 
 ```bash
-bash scripts/08_run_pipeline.sh configs/experiments/horse-textured-wan-leftforeleg-grouped-tracks.yaml --until-stage supervision --debug-images
+bash scripts/08_run_pipeline.sh configs/horse.yaml --until-stage supervision --debug-images
 ```
 
 除錯圖預設關閉。開啟後會在 `runs/<asset>/<run-id>/supervision-review/` 輸出每個取樣幀的
@@ -366,7 +366,7 @@ bash scripts/08_run_pipeline.sh configs/experiments/horse-textured-wan-leftforel
 若要先檢查 joint、暫時不跑 FEM：
 
 ```bash
-bash scripts/08_run_pipeline.sh configs/experiments/horse-textured-wan-leftforeleg-grouped-tracks.yaml --until-stage joints
+bash scripts/08_run_pipeline.sh configs/horse.yaml --until-stage joints
 ```
 
 結果會在 `runs/<asset>/<run-id>/joint-review/`，包含並排比較、左右斜側面與 GLB。
@@ -481,7 +481,7 @@ animimic inspect runs/horse/你的-run-id
 若已有前段 cache，可從指定 stage 開始：
 
 ```bash
-animimic run --config configs/experiments/horse-textured-wan-leftforeleg-grouped-tracks.yaml --from-stage joints
+animimic run --config configs/horse.yaml --from-stage joints
 ```
 
 此指令要求相同設定的前置 cache 存在；若缺少，請先用一般 `run`。
