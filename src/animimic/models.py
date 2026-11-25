@@ -1,5 +1,7 @@
 """Frozen pretrained inference adapters; model results are cached by the pipeline."""
 import gc
+import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -21,15 +23,32 @@ def generate_video(image, output, config):
     checkpoint = Path(config.get("checkpoint", "weights/Wan2.2-TI2V-5B")).resolve()
     if not (repo/"generate.py").is_file():
         raise RuntimeError(f"Install official Wan2.2 repository at {repo}")
-    subprocess.run([
-        sys.executable, str(repo/"generate.py"), "--task", "ti2v-5B",
-        "--size", "1280*704", "--ckpt_dir", str(checkpoint),
-        "--offload_model", "True", "--convert_model_dtype", "--t5_cpu",
-        "--image", str(Path(image).resolve()), "--prompt", config["prompt"],
-        "--base_seed", str(config.get("seed", 2026)),
-        "--frame_num", str(config.get("num_frames", 121)),
-        "--save_file", str(Path(output).resolve()),
-    ], cwd=repo, check=True)
+    from .video_backends import validate_video
+    validate_video(config)
+    release()
+    environment = os.environ.copy()
+    environment.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+    # The official CLI restricts 5B to 704p. Its Python API supports max_area,
+    # allowing a smaller latent grid without patching the upstream repository.
+    if "width" in config or "height" in config or config.get("cpu_export", False):
+        subprocess.run([
+            sys.executable, str(Path(__file__).with_name("wan_worker.py")),
+            str(repo), str(checkpoint), str(Path(image).resolve()), str(Path(output).resolve()),
+        ], input=json.dumps(config), text=True, cwd=repo, env=environment, check=True)
+    else:
+        command = [
+            sys.executable, str(repo/"generate.py"), "--task", "ti2v-5B",
+            "--size", "1280*704", "--ckpt_dir", str(checkpoint),
+            "--offload_model", "True", "--convert_model_dtype", "--t5_cpu",
+            "--image", str(Path(image).resolve()), "--prompt", config["prompt"],
+            "--base_seed", str(config.get("seed", 2026)),
+            "--frame_num", str(config.get("num_frames", 121)),
+            "--save_file", str(Path(output).resolve()),
+        ]
+        for key, flag in (("num_inference_steps", "--sample_steps"), ("guidance_scale", "--sample_guide_scale")):
+            if key in config:
+                command.extend([flag, str(config[key])])
+        subprocess.run(command, cwd=repo, env=environment, check=True)
     if not Path(output).is_file():
         raise RuntimeError("Wan did not produce reference video")
 
@@ -55,7 +74,7 @@ def segment_frames(directory, first_mask, config):
     predictor = SAM2VideoPredictor.from_pretrained(
         config.get("sam_model", "facebook/sam2.1-hiera-large"))
     with torch.inference_mode(), torch.autocast("cuda", dtype=torch.bfloat16):
-        state = predictor.init_state(str(directory), offload_video_to_cpu=True)
+        state = predictor.init_state(str(directory), offload_video_to_cpu=True, offload_state_to_cpu=True)
         predictor.add_new_mask(state, frame_idx=0, obj_id=1, mask=first_mask)
         masks = {}
         for t, _, logits in predictor.propagate_in_video(state):

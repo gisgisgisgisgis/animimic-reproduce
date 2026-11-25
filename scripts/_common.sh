@@ -3,13 +3,22 @@
 set -Eeuo pipefail
 ANIMIMIC_CALLER_DIR="$PWD"
 ANIMIMIC_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
-ANIMIMIC_ENV_DIR="${ANIMIMIC_ENV_DIR:-$ANIMIMIC_ROOT/.venv}"
+if [[ -z "${ANIMIMIC_ENV_DIR:-}" ]]; then
+    if [[ -n "${VIRTUAL_ENV:-}" ]]; then
+        ANIMIMIC_ENV_DIR="$VIRTUAL_ENV"
+    elif [[ -n "${CONDA_PREFIX:-}" && "${CONDA_DEFAULT_ENV:-}" != base ]]; then
+        ANIMIMIC_ENV_DIR="$CONDA_PREFIX"
+    else
+        ANIMIMIC_ENV_DIR="$ANIMIMIC_ROOT/.venv"
+    fi
+fi
 if [[ "$ANIMIMIC_ENV_DIR" != /* ]]; then
     ANIMIMIC_ENV_DIR="$ANIMIMIC_CALLER_DIR/$ANIMIMIC_ENV_DIR"
 fi
 ANIMIMIC_PYTHON="$ANIMIMIC_ENV_DIR/bin/python"
 export HF_HOME="${HF_HOME:-$ANIMIMIC_ROOT/.cache/huggingface}"
 export TORCH_HOME="${TORCH_HOME:-$ANIMIMIC_ROOT/.cache/torch}"
+export PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}"
 export PATH="$ANIMIMIC_ENV_DIR/bin:$ANIMIMIC_ROOT/third_party/fTetWild/build:$PATH"
 cd -- "$ANIMIMIC_ROOT"
 trap 'printf "\nFailed: %s, line %s (exit %s)\n" "$0" "$LINENO" "$?" >&2' ERR
@@ -30,7 +39,7 @@ find_conda() {
     return 1
 }
 require_env() {
-    [[ -x "$ANIMIMIC_PYTHON" ]] || die "Run bash scripts/01_create_env.sh first."
+    [[ -x "$ANIMIMIC_PYTHON" ]] || die "Python not found at $ANIMIMIC_PYTHON. Activate your animimic Conda/venv environment, set ANIMIMIC_ENV_DIR, or run bash scripts/01_create_env.sh to create one."
     "$ANIMIMIC_PYTHON" -c 'import sys; assert (3,11) <= sys.version_info[:2] <= (3,12), "Use Python 3.11 or 3.12; create a new environment"'
 }
 require_cuda() {

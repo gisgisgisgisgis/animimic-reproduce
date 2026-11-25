@@ -7,7 +7,7 @@ import torch
 
 from .core import save_history, save_json
 from .fem import adaptive_step, initial_state, FEMConvergenceError, volumes, BACKEND
-from .optimize import video_loss
+from .optimize import video_loss, objective_weights
 from .progress import Progress
 
 
@@ -160,8 +160,8 @@ def fit_material(rig, data, joint_world, target, renderer, directory, config, dt
             trajectory = torch.stack(states)
             trajectory_log_e = log_e.detach().clone()
             surface = (trajectory[:, embedding]*bary[None, ..., None]).sum(-2).float()
-            losses = video_loss(surface, rig, target, renderer, progress=progress)
-            weights = config.get("loss_weights", {})
+            losses = video_loss(surface, rig, target, renderer, progress=progress, config=config)
+            weights = objective_weights(config)
             loss = sum(weights.get(k, 1)*v for k, v in losses.items())
             if not torch.isfinite(loss):
                 raise RuntimeError("Nonfinite material objective")

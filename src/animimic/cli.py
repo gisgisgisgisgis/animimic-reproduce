@@ -93,8 +93,10 @@ def main():
     run = sub.add_parser("run")
     run.add_argument("--config", required=True)
     run.add_argument("--from-stage")
-    run.add_argument("--until-stage", choices=("render", "video", "joints"))
+    run.add_argument("--until-stage", choices=("render", "video", "supervision", "joints"))
     run.add_argument("--force-stage")
+    run.add_argument("--debug-images", action="store_true",
+                     help="Export per-frame tracker, SAM2 mask and VGGT depth images")
     run.add_argument("--video-backend", choices=("wan", "ltx"))
     videos = sub.add_parser("video")
     videos.add_argument("--config", required=True)
@@ -136,7 +138,8 @@ def main():
                 original = config["video"]
                 config["video"] = {k: original[k] for k in keep if k in original}
                 config["video"]["backend"] = args.video_backend
-        print(run(config, args.force_stage, args.from_stage, args.until_stage))
+        print(run(config, args.force_stage, args.from_stage, args.until_stage,
+                  debug_images=args.debug_images))
     elif args.command == "video":
         from .video_backends import generate_video
         from .core import Cache
@@ -149,6 +152,8 @@ def main():
                   "code": file_hash(Path(__file__).with_name("video_backends.py"))}
         if backend == "wan":
             inputs["revision"] = repo_revision(video.get("repo", "third_party/Wan2.2"))
+            inputs["wan_code"] = {name: file_hash(Path(__file__).with_name(name))
+                                  for name in ("models.py", "wan_worker.py")}
         def produce(directory):
             generate_video(args.image, directory/"reference.mp4", video)
             return ["reference.mp4"]

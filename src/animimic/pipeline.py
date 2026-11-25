@@ -23,9 +23,9 @@ def repo_revision(path):
         return "not-installed"
 
 
-def run(config, force_stage=None, from_stage=None, until_stage=None):
-    if until_stage not in (None, "render", "video", "joints"):
-        raise ValueError("until_stage must be render, video or joints")
+def run(config, force_stage=None, from_stage=None, until_stage=None, *, debug_images=False):
+    if until_stage not in (None, "render", "video", "supervision", "joints"):
+        raise ValueError("until_stage must be render, video, supervision or joints")
     if from_stage and until_stage and STAGES.index(from_stage) > STAGES.index(until_stage):
         raise ValueError("--from-stage cannot be after --until-stage")
     print("[pipeline] Loading dependencies...", flush=True)
@@ -139,7 +139,7 @@ def run(config, force_stage=None, from_stage=None, until_stage=None):
     if config.get("reference_video"):
         video_inputs["external_video"] = file_hash(config["reference_video"])
     generated = stage("video", video_config, video_inputs, video,
-                      ["models.py"] if backend == "wan" else ["video_backends.py"])
+                      ["models.py", "wan_worker.py"] if backend == "wan" else ["video_backends.py"])
     if until_stage == "video":
         from .video_review import write_review
         write_review(rendered/"canonical.png", generated/"reference.mp4", run_dir, video_config)
@@ -147,15 +147,24 @@ def run(config, force_stage=None, from_stage=None, until_stage=None):
         print(f"[review] Contact sheet: {run_dir/'video-review.jpg'}", flush=True)
         print("[review] Stopped after video. Check the result before running later stages.", flush=True)
         return run_dir
+    settings = config.get("supervision", {})
+    groups = settings.get("track_groups", {})
+
     def supervise(out):
         frames, indices = sample_video(generated/"reference.mp4", out/"frames",
             video_config.get("sample_frames", 25), renderer.size[::-1])
-        settings = config.get("supervision", {})
         print(f"[supervision] SAM2 masks | {len(frames)} frames", flush=True)
         masks = segment_frames(out/"frames", np.load(rendered/"mask.npy")>.5, settings)
         with torch.no_grad():
+            count = settings.get("max_tracks", 512)
             tri, beta, pixels = renderer.surface_samples(
-                rig["vertices"], rig["faces"], rig["colors"], settings.get("max_tracks", 512))
+                rig["vertices"], rig["faces"], rig["colors"], int(np.prod(renderer.size)) if groups else count)
+            if groups:
+                from .track_sampling import spread_samples, track_part_ids
+                _, parts = track_part_ids(raw, tri.cpu().numpy(), beta.cpu().numpy(), groups)
+                selected = spread_samples(pixels.cpu().numpy(), parts, count)
+                ids = torch.as_tensor(selected, device=tri.device)
+                tri, beta, pixels = tri[ids], beta[ids], pixels[ids]
         print("[supervision] AllTracker tracks", flush=True)
         tracks, visibility, confidence = track_frames(frames, pixels, settings)
         print("[supervision] VGGT depth", flush=True)
@@ -174,12 +183,20 @@ def run(config, force_stage=None, from_stage=None, until_stage=None):
             visibility=visibility, confidence=confidence, depth=depth,
             depth_maps=depth_maps, indices=indices)
         return ["supervision.npz"]+[str(p.relative_to(out)) for p in sorted((out/"frames").glob("*.jpg"))]
-    supervised = stage("supervision", config.get("supervision", {}),
+    supervised = stage("supervision", settings,
         {"video": file_hash(generated/"reference.mp4"), "mask": file_hash(rendered/"mask.npy"),
          "alltracker_revision": repo_revision("third_party/alltracker"),
          "sam_revision": repo_revision("third_party/sam2"),
-         "vggt_revision": repo_revision("third_party/vggt")},
-        supervise, ["models.py", "render.py"])
+         "vggt_revision": repo_revision("third_party/vggt"),
+         **({"rig": file_hash(prepared/"rig.npz")} if groups else {})},
+        supervise, ["models.py", "render.py"] + (["track_sampling.py"] if groups else []))
+    if debug_images:
+        from .supervision_review import write_review
+        review = run_dir/"supervision-review"
+        write_review(supervised/"supervision.npz", review, rig=raw, groups=groups)
+        print(f"[review] Supervision: {review}", flush=True)
+    if until_stage == "supervision":
+        return run_dir
     target_raw = dict(np.load(supervised/"supervision.npz"))
     target = {k: torch.as_tensor(v, device=device,
               dtype=torch.long if k in ("triangles", "indices") else torch.float32)
@@ -192,12 +209,13 @@ def run(config, force_stage=None, from_stage=None, until_stage=None):
         {"rig": file_hash(prepared/"rig.npz"), "supervision": file_hash(supervised/"supervision.npz"),
          "fps": video_fps, "camera": camera},
         lambda out: fit_joints(rig, target, renderer, out, config.get("joints", {})),
-        ["rig.py", "optimize.py", "losses.py", "render.py"])
+        ["rig.py", "optimize.py", "losses.py", "render.py", "evaluate.py"])
     joint = dict(np.load(joint_dir/"joint_trajectory.npz"))
     if until_stage == "joints":
         review_dir = run_dir/"joint-review"
         write_joint_review(review_dir, rig, joint["local"], renderer,
                            generated/"reference.mp4", indices, video_fps)
+        shutil.copy2(joint_dir/"joint_diagnostics.json", review_dir/"joint_diagnostics.json")
         print(f"[review] Joint animation: {review_dir/'joint_0.mp4'}", flush=True)
         print("[review] Stopped after joints; no tetrahedralization or FEM was run.", flush=True)
         return run_dir
@@ -208,6 +226,8 @@ def run(config, force_stage=None, from_stage=None, until_stage=None):
     dt = float(np.diff(indices).mean())/video_fps
     # Eq. 13 reuses the image-space objective and lambda weights from Eq. 4.
     physics_config = {**config.get("physics", {}),
+                      "objective": config.get("joints", {}).get("objective", "paper"),
+                      "confidence_threshold": config.get("joints", {}).get("confidence_threshold", .1),
                       "loss_weights": config.get("joints", {}).get("loss_weights", {})}
     physics_dir = stage("physics", physics_config,
         {"tet": file_hash(tet_dir/"tetrahedral.npz"), "joint": file_hash(joint_dir/"joint_trajectory.npz"),

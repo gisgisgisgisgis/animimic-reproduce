@@ -12,6 +12,45 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class ShellEntrypointTests(unittest.TestCase):
+    def test_active_environment_selection_and_explicit_override(self):
+        with tempfile.TemporaryDirectory(prefix="animimic active env ") as temporary:
+            root = Path(temporary)
+            scripts = root/"scripts"
+            scripts.mkdir()
+            shutil.copy2(ROOT/"scripts/_common.sh", scripts/"_common.sh")
+            for name in ("conda env", "venv env", "explicit env", ".venv"):
+                binaries = root/name/"bin"
+                binaries.mkdir(parents=True)
+                (binaries/"python").symlink_to(sys.executable)
+            environment = {k: v for k, v in os.environ.items()
+                           if k not in ("ANIMIMIC_ENV_DIR", "CONDA_PREFIX", "CONDA_DEFAULT_ENV", "VIRTUAL_ENV")}
+            cases = [
+                ({"CONDA_PREFIX": str(root/"conda env"), "CONDA_DEFAULT_ENV": "animimic"}, "conda env"),
+                ({"CONDA_PREFIX": str(root/"conda env"), "CONDA_DEFAULT_ENV": "animimic",
+                  "VIRTUAL_ENV": str(root/"venv env")}, "venv env"),
+                ({"CONDA_PREFIX": str(root/"conda env"), "CONDA_DEFAULT_ENV": "animimic",
+                  "VIRTUAL_ENV": str(root/"venv env"), "ANIMIMIC_ENV_DIR": "explicit env"}, "explicit env"),
+                ({"CONDA_PREFIX": str(root/"conda env"), "CONDA_DEFAULT_ENV": "base"}, ".venv"),
+                ({}, ".venv"),
+            ]
+            for settings, expected in cases:
+                with self.subTest(expected=expected, settings=settings):
+                    result = subprocess.run(
+                        ["bash", "-c", 'source "$1"; require_env; printf "%s\\n" "$ANIMIMIC_PYTHON"',
+                         "test", str(scripts/"_common.sh")], cwd=root,
+                        env={**environment, **settings}, capture_output=True, text=True, check=True)
+                    self.assertEqual(result.stdout.strip(), str(root/expected/"bin/python"))
+
+    def test_missing_environment_reports_selected_path(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            missing = Path(temporary)/"missing env"
+            result = subprocess.run(
+                ["bash", "-c", 'source "$1"; require_env', "test", str(ROOT/"scripts/_common.sh")],
+                env={**os.environ, "ANIMIMIC_ENV_DIR": str(missing)}, capture_output=True, text=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn(str(missing/"bin/python"), result.stderr)
+            self.assertIn("Activate", result.stderr)
+
     def test_tetwild_installs_compatible_cmake_and_builds(self):
         with tempfile.TemporaryDirectory(prefix="animimic tetwild ") as temporary:
             root = Path(temporary)
@@ -121,10 +160,10 @@ class ShellEntrypointTests(unittest.TestCase):
 
     def test_run_forwards_flags_and_preserves_scheduler_device(self):
         record, caller = self.invoke("08_run_pipeline.sh",
-                                    ["my config.yaml", "--from-stage", "joints"])
+                                    ["my config.yaml", "--from-stage", "joints", "--debug-images"])
         self.assertEqual(record["args"], [
             "-m", "animimic.cli", "run", "--config", str(caller/"my config.yaml"),
-            "--from-stage", "joints"])
+            "--from-stage", "joints", "--debug-images"])
         self.assertEqual(record["cwd"], str(ROOT))
         self.assertEqual(record["gpu"], "3")
         self.assertEqual(record["hf"], str(caller/"hf cache"))

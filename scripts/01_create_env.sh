@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 source "$(dirname -- "${BASH_SOURCE[0]}")/_common.sh"
-show_help "${1:-}" "bash scripts/01_create_env.sh: create repo-local Python 3.11 .venv; no activation needed for numbered scripts."
+show_help "${1:-}" "bash scripts/01_create_env.sh: reuse an active Conda/venv environment, or create repo-local Python 3.11 .venv. ANIMIMIC_ENV_DIR overrides automatic selection."
 if [[ -e "$ANIMIMIC_ENV_DIR" ]]; then
     [[ -x "$ANIMIMIC_PYTHON" ]] || die "Environment path exists but has no Python. Choose a new ANIMIMIC_ENV_DIR; existing files are preserved."
     require_env

@@ -104,7 +104,10 @@ bash scripts/08_run_pipeline.sh configs/fox.yaml
 ```
 
 腳本自動設定 HF/Torch cache 到 repo 的 `.cache/`，也會自動加入 fTetWild 的 PATH。
-若要沿用已建立的其他環境，將 `ANIMIMIC_ENV_DIR` 指向該環境根目錄。
+腳本優先使用明確指定的 `ANIMIMIC_ENV_DIR`，其次是已啟用的 venv、
+已啟用的非 base Conda 環境，最後才使用 repo 內的 `.venv`。
+已經 `conda activate animimic` 時可以直接執行，不必重建環境或另外設定路徑。
+若要使用尚未啟用的其他環境，將 `ANIMIMIC_ENV_DIR` 指向該環境根目錄。
 GPU 編號、下載快取位置和編譯平行度都可由外部設定，既有設定會保留：
 
 ```bash
@@ -377,8 +380,22 @@ preflight 會檢查完整 pipeline 的套件、repo、CUDA 與 fTetWild；
 ### 6.5 開始執行
 
 ```bash
-animimic run --config configs/horse-ltx.yaml
+bash scripts/08_run_pipeline.sh configs/horse-ltx.yaml
 ```
+
+完整流程依序是 `prepare → render → video → supervision → joints → tetrahedralize → physics → export`。
+Supervision 使用 SAM2 取得前景遮罩、AllTracker 追蹤表面點、VGGT 估計深度。
+Stage 1 用這些觀測擬合骨架，Stage 2 以骨架動作為邊界條件進行 FEM 材料擬合，
+最後匯出骨架動畫、物理動畫預覽和評估指標。
+
+只想檢查觀測資料時，可跑到 supervision 並開啟除錯圖。
+
+```bash
+bash scripts/08_run_pipeline.sh configs/horse-ltx.yaml --until-stage supervision --debug-images
+```
+
+除錯圖預設關閉。開啟後會在 `runs/<asset>/<run-id>/supervision-review/` 輸出每個取樣幀的
+追蹤點、SAM2 遮罩及 VGGT 深度圖，也可直接使用已有的 supervision 快取。
 
 若要先檢查 joint、暫時不跑 FEM：
 

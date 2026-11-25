@@ -20,13 +20,14 @@ def validate_video(config):
         raise ValueError(f"{backend} frame count must be {divisor}k+1 and at least {divisor+1}")
     if config.get("fps", 24) <= 0:
         raise ValueError("video.fps must be positive")
-    if backend == "ltx":
-        for name, default in (("width", 512), ("height", 288)):
+    if backend == "ltx" or "width" in config or "height" in config:
+        defaults = (("width", 512), ("height", 288)) if backend == "ltx" else (("width", 1280), ("height", 704))
+        for name, default in defaults:
             value = config.get(name, default)
-            if value < 32 or value % 32:
-                raise ValueError(f"LTX {name} must be a positive multiple of 32")
-        if config.get("num_inference_steps", 30) < 1:
-            raise ValueError("LTX inference steps must be positive")
+            if not isinstance(value, int) or value < 32 or value % 32:
+                raise ValueError(f"{backend} {name} must be a positive multiple of 32")
+    if config.get("num_inference_steps", 30 if backend == "ltx" else 50) < 1:
+        raise ValueError("Video inference steps must be positive")
     return backend
 
 

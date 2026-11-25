@@ -1,0 +1,29 @@
+asset: horse_textured
+camera:
+  width: 768
+  height: 448
+  azimuth: 65
+  elevation: 5
+  distance: 1.5
+  lighting: unlit
+  srgb: true
+  use_texture: true
+video:
+  backend: wan
+  cpu_export: true
+  use_negative_prompt: false
+  prompt: The brown horse stands still with its head held steady. It slowly opens
+    its mouth wide, parting its lips and showing its teeth, then closes its mouth
+    again. The rest of the body stays still and in the same place. The same horse
+    keeps consistent coat markings and proportions. The camera and plain background
+    stay fixed throughout this continuous five-second shot.
+  negative_prompt: second horse, duplicate animal, walking, running, sliding hooves,
+    drifting body, camera movement, camera shake, pan, zoom, orbit, camera cuts, frozen
+    pose, still image, missing legs, extra legs, distorted anatomy, melting body,
+    changing markings, changing background, flicker
+  seed: 2026
+  num_frames: 121
+  fps: 24
+  sample_frames: 25
+  num_inference_steps: 50
+  guidance_scale: 5.0

@@ -48,6 +48,59 @@ def smoothness(vertices):
     return loss
 
 
+def standardize_depth(depth, reference, valid):
+    """Per-frame mean/std alignment to fixed canonical camera depth.
+
+    Empty frames are ignored by the loss; one-point frames use zero variance.
+    Sparse tracks remain finite without changing their visibility mask.
+    """
+    with torch.no_grad():
+        canonical = reference.detach()[valid[0]]
+        if not canonical.numel():
+            raise ValueError("Depth standardization needs valid first-frame tracks")
+        def spread(value):
+            return value.std() if value.numel() > 1 else value.new_zeros(())
+        center, scale = canonical.mean(), spread(canonical).clamp_min(1e-6)
+        result = torch.zeros_like(depth)
+        for frame in range(len(depth)):
+            selected = depth[frame, valid[frame]]
+            if selected.numel():
+                result[frame] = ((depth[frame]-selected.mean())
+                                 / spread(selected).clamp_min(1e-6)*scale+center)
+        return result
+
+
+def offset_regularization(rotation, translation, roots, rotation_bound=1., translation_bound=.01):
+    """Squared componentwise penalty on identity offsets (not Eq. 9's norm)."""
+    if not (0 < rotation_bound < float("inf") and 0 < translation_bound < float("inf")):
+        raise ValueError("Joint clipping bounds must be finite and positive")
+    if not (~roots).any():
+        return (rotation.sum()+translation.sum())*0
+    identity = rotation.new_tensor([1., 0, 0, 0, 1, 0])
+    delta = rotation[:, ~roots]-identity
+    offset = translation[:, ~roots]
+    return ((delta-delta.clamp(-rotation_bound, rotation_bound)).square().sum(-1).mean()
+            + (offset-offset.clamp(-translation_bound, translation_bound)).square().sum(-1).mean())
+
+
+def mesh_edges(vertices, faces):
+    """Unique nondegenerate edges and their actual rest lengths."""
+    edges = torch.cat([faces[:, [0, 1]], faces[:, [1, 2]], faces[:, [2, 0]]])
+    edges = torch.unique(edges.sort(dim=-1).values, dim=0)
+    length = (vertices[edges[:, 0]]-vertices[edges[:, 1]]).norm(dim=-1)
+    keep = length > 1e-6
+    return edges[keep], length[keep]
+
+
+def edge_rigidity(vertices, edges, rest_length):
+    """Relative edge stretch; the denominator floor does not move the rest target."""
+    if not rest_length.numel():
+        return vertices.sum()*0
+    length = (vertices[:, edges[:, 0]]-vertices[:, edges[:, 1]]).norm(dim=-1)
+    scale = rest_length.clamp_min(.25*rest_length.median())
+    return ((length-rest_length)/scale).square().mean()
+
+
 def temporal_acceleration(value, times):
     """Acceleration in seconds, rather than differences per sampled frame."""
     if len(value) < 3:
