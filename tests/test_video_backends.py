@@ -34,7 +34,7 @@ class VideoBackendTests(unittest.TestCase):
             validate_video({"backend": "unrecognized"})
         with self.assertRaises(ValueError):
             validate_video({"backend": "wan", "width": 500})
-        self.assertEqual(validate_video(load_config("configs/fox-ltx.yaml")["video"]), "ltx")
+        self.assertEqual(validate_video(load_config("configs/fox.yaml")["video"]), "wan")
 
     def test_wan_smaller_resolution_runs_isolated_worker_with_allocator_config(self):
         from animimic.models import generate_video as generate_wan
@@ -54,21 +54,17 @@ class VideoBackendTests(unittest.TestCase):
             self.assertEqual(kwargs['env']['PYTORCH_CUDA_ALLOC_CONF'], 'expandable_segments:True')
             self.assertTrue(kwargs['check'])
 
-    def test_full_quality_cpu_export_keeps_master_generation_settings(self):
+    def test_full_quality_cpu_export_keeps_generation_settings(self):
         from animimic.models import generate_video as generate_wan
         root = Path(__file__).resolve().parents[1]
-        # Validate fixed settings independently of the local Git remote availability.
-        for action in ('leftforeleg', 'tail', 'mouth'):
-            base = load_config(root/f'configs/experiments/horse-textured-wan-{action}.yaml')
-            config = load_config(root/f'configs/experiments/horse-textured-wan-{action}-normalized-rigid.yaml')
-            self.assertEqual(config['video'], base['video'])
-            video = config['video'].copy()
-            self.assertTrue(video.pop('cpu_export'))
-            self.assertFalse(video.pop('use_negative_prompt'))
-            self.assertEqual(video['num_frames'], 121)
-            self.assertNotIn('width', video)
-            self.assertNotIn('height', video)
-            self.assertNotIn('sample_shift', video)
+        config = load_config(root/'configs/experiments/horse-textured-wan-leftforeleg-grouped-tracks.yaml')
+        video = config['video']
+        self.assertTrue(video['cpu_export'])
+        self.assertFalse(video['use_negative_prompt'])
+        self.assertEqual(video['num_frames'], 121)
+        self.assertNotIn('width', video)
+        self.assertNotIn('height', video)
+        self.assertNotIn('sample_shift', video)
         with tempfile.TemporaryDirectory() as temporary:
             repo = Path(temporary)
             (repo/'generate.py').touch()

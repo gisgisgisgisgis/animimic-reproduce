@@ -1,8 +1,0 @@
-asset: puppy
-video:
-  backend: ltx
-  prompt: A dog gently wags its tail and turns its head, whole body visible, static camera and unchanged plain background.
-  seed: 2026
-  num_frames: 49
-  sample_frames: 25
-  fps: 24

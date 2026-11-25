@@ -3,14 +3,13 @@
 將現成 rigged 3D mesh 的動作對齊到 I2V 生成的參考影片，並用可微分 FEM 做第二階段 refinement：
 
 ```text
-rigged GLB → canonical image → Wan / LTX 影片
+rigged GLB → canonical image → Wan 影片
            → SAM2 mask + AllTracker tracks + VGGT depth
            → joint optimization → fTetWild → FEM material optimization
            → GLB / NPZ / MP4
 ```
 
 不需要訓練模型。每段參考影片與 supervision 都會存檔、快取。
-第一次使用建議先跑 **LTX 2B 的單獨影片生成**，成功後再安裝完整 pipeline。
 
 ## 直接執行 sh 腳本（建議入口）
 
@@ -27,33 +26,28 @@ bash scripts/02_install_video.sh
 如果兩者都沒有，先執行 `bash scripts/00_install_miniforge.sh`，再重跑 `01`。
 後續腳本會自動使用此環境，不必手動 activate，也不會使用系統 Python 3.8。
 
-只生成 LTX 影片，準備自己的圖片後執行：
-
-```bash
-bash scripts/07_generate_video.sh inputs/reference.png configs/fox-ltx.yaml runs/reference-ltx.mp4
-```
-
 完整 pipeline，接著依序執行：
 
 ```bash
 # 若主機找不到 nvcc，先安裝使用者目錄內的 toolkit：
 bash scripts/12_install_cuda_toolkit.sh
-bash scripts/03_install_pipeline.sh ltx
+bash scripts/03_install_pipeline.sh wan
+bash scripts/09_download_wan.sh
 bash scripts/05_fetch_assets.sh horse_textured
 # 先看輸入圖，再只生成影片；不會接著跑 joint/FEM：
-bash scripts/13_review_video.sh --render-only
-bash scripts/13_review_video.sh
+bash scripts/08_run_pipeline.sh --until-stage render
+bash scripts/08_run_pipeline.sh --until-stage video
 # 確認影片合格後才繼續：
 bash scripts/04_build_tetwild.sh
-bash scripts/06_check.sh configs/horse-textured-ltx-5s.yaml
-bash scripts/08_run_pipeline.sh configs/horse-textured-ltx-5s.yaml
+bash scripts/06_check.sh configs/experiments/horse-textured-wan-leftforeleg-grouped-tracks.yaml
+bash scripts/08_run_pipeline.sh configs/experiments/horse-textured-wan-leftforeleg-grouped-tracks.yaml
 ```
 
-`13` 預設使用有 2K 毛色貼圖的新馬（`horse_textured`），生成約 5 秒影片
+影片預覽預設使用有 2K 毛色貼圖的新馬（`horse_textured`），生成約 5 秒影片
 （121 幀、24 fps），輸出位置會印在終端機：
 `runs/horse_textured/<run-id>/canonical.png`、`reference.mp4` 與 `video-review.jpg`。
 先確認只有一匹馬、動作確實發生、沒有整隻滑走、外形和鏡頭穩定，再執行完整流程。
-若影片不合格，修改 `configs/horse-textured-ltx-5s.yaml` 的 prompt 或 seed 後重跑 `13`。
+若影片不合格，修改 `configs/experiments/horse-textured-wan-leftforeleg-grouped-tracks.yaml` 的 prompt 或 seed 後重跑影片預覽。
 確認後用同一份 YAML 跑 `08`，會共用影片快取，不需重新生成。
 
 舊的 `horse` 是純色材質的帶鞍模型，沒有毛色貼圖細節，保留作流程除錯；
@@ -71,36 +65,24 @@ bash scripts/08_run_pipeline.sh configs/horse-textured-ltx-5s.yaml
 | --- | --- |
 | `00_install_miniforge.sh` | 選用；安裝到 ~/miniforge3 |
 | `01_create_env.sh` | 建立／檢查 Python 環境 |
-| `02_install_video.sh` | CUDA PyTorch 2.6 + LTX 依賴 |
-| `03_install_pipeline.sh [ltx\|wan]` | supervision、PyTorch3D、FEM 依賴；預設 ltx |
+| `02_install_video.sh` | CUDA PyTorch 2.6 和影片依賴 |
+| `03_install_pipeline.sh [wan]` | supervision、PyTorch3D、FEM 依賴；預設 Wan |
 | `04_build_tetwild.sh` | 編譯 fTetWild |
 | `05_fetch_assets.sh [角色 ...]` | 下載指定角色；預設 horse |
 | `06_check.sh [CONFIG]` | 完整環境 preflight |
 | `07_generate_video.sh IMAGE [CONFIG] [OUTPUT]` | 單獨生成／重用快取影片 |
-| `08_run_pipeline.sh [CONFIG] [RUN FLAGS ...]` | 完整 pipeline；預設 horse-ltx |
-| `09_download_wan.sh` | 選用；下載 Wan 5B 權重 |
+| `08_run_pipeline.sh [CONFIG] [RUN FLAGS ...]` | 完整 pipeline；預設 Wan 馬設定 |
+| `09_download_wan.sh` | 下載 Wan 5B 權重，生成新影片時需要 |
 | `10_tests.sh` | offline tests + pip check |
-| `11_preview_asset.sh [角色]` | CPU 多視角資產預覽；預設 horse |
 | `12_install_cuda_toolkit.sh` | 選用；在 .cache/cuda-12.4 安裝 nvcc / CUDA toolkit，不更動 driver |
-| `13_review_video.sh [CONFIG] [--render-only]` | 預設 horse-textured-ltx-5s；先檢查輸入與影片，停止在 render 或 video |
 
 每個入口都可用 `--help` 查看參數。例如：
 
 ```bash
 bash scripts/08_run_pipeline.sh --help
 bash scripts/05_fetch_assets.sh horse puppy shark
-bash scripts/08_run_pipeline.sh configs/horse-ltx.yaml --from-stage joints
-bash scripts/11_preview_asset.sh puppy
+bash scripts/08_run_pipeline.sh configs/experiments/horse-textured-wan-leftforeleg-grouped-tracks.yaml --from-stage joints
 bash scripts/10_tests.sh
-```
-
-切換 Wan：
-
-```bash
-bash scripts/03_install_pipeline.sh wan
-bash scripts/09_download_wan.sh
-bash scripts/06_check.sh configs/fox.yaml
-bash scripts/08_run_pipeline.sh configs/fox.yaml
 ```
 
 腳本自動設定 HF/Torch cache 到 repo 的 `.cache/`，也會自動加入 fTetWild 的 PATH。
@@ -111,8 +93,8 @@ bash scripts/08_run_pipeline.sh configs/fox.yaml
 GPU 編號、下載快取位置和編譯平行度都可由外部設定，既有設定會保留：
 
 ```bash
-CUDA_VISIBLE_DEVICES=0 bash scripts/08_run_pipeline.sh configs/horse-ltx.yaml
-MAX_JOBS=1 bash scripts/03_install_pipeline.sh ltx
+CUDA_VISIBLE_DEVICES=0 bash scripts/08_run_pipeline.sh configs/experiments/horse-textured-wan-leftforeleg-grouped-tracks.yaml
+MAX_JOBS=1 bash scripts/03_install_pipeline.sh wan
 # 只有在使用其他已存在的 Python 環境時才需要：
 ANIMIMIC_ENV_DIR="$HOME/miniforge3/envs/animimic" bash scripts/06_check.sh
 ```
@@ -233,32 +215,17 @@ GPU available 為 `True`。若為 False，先處理 GPU/driver/容器配置，
 不要繼續下載大型權重。其他 CUDA wheel 組合請對照
 [PyTorch 官方舊版安裝表](https://pytorch.org/get-started/previous-versions/)。
 
-## 5. 路徑一：先只生成一段 LTX 影片
+## 5. 用自己的圖片生成 Wan 影片
 
-這條路徑不需要 SAM2、AllTracker、VGGT、PyTorch3D 或 fTetWild。
-
-```bash
-python -m pip install -e '.[video]'
-python -m pip check
-animimic --help
-```
-
-準備一張自己的 PNG/JPG，例如 `inputs/reference.png`。
-路徑需改成你實際存放的圖片：
+完成 Wan 安裝與權重下載後，可直接用 PNG 或 JPEG 生成影片：
 
 ```bash
-animimic video --config configs/fox-ltx.yaml --image inputs/reference.png --output runs/reference-ltx.mp4
+bash scripts/07_generate_video.sh inputs/reference.png configs/fox.yaml runs/reference-wan.mp4
 ```
 
-首次執行自動下載 `Lightricks/LTX-Video` 的原始 2B 權重及 text encoder。
-預設 512×288、49 幀、30 steps，並啟用 CPU offload。
-offload 使用 CPU RAM 暫存部分模型，生成仍使用 GPU。
+若換成其他角色，請在設定副本調整 `video.prompt`。
 
-輸出為 `runs/reference-ltx.mp4`。相同圖片、prompt、seed 與設定重跑會讀快取。
-範例 prompt 寫的是 fox；換成自己的圖片時，請複製 YAML 並修改
-`video.prompt`，讓文字描述符合圖片。
-
-## 6. 路徑二：完整 3D animation pipeline
+## 6. 完整 3D animation pipeline
 
 先完成第 1–4 節，再做本節。若已安裝 video extra，可以直接繼續。
 
@@ -290,7 +257,7 @@ which nvcc
 
 ```bash
 bash scripts/12_install_cuda_toolkit.sh
-bash scripts/03_install_pipeline.sh ltx
+bash scripts/03_install_pipeline.sh wan
 ```
 
 這會透過 Conda 在 repo 的 `.cache/cuda-12.4` 安裝 NVIDIA
@@ -316,13 +283,12 @@ CUDA compiler 對 GCC 版本有要求，請搭配該 toolkit 支援的 compiler�
 
 ```bash
 python -m pip install -e '.[gpu,video]'
-MAX_JOBS=2 python scripts/bootstrap.py --video-backend ltx
+MAX_JOBS=2 python scripts/bootstrap.py --video-backend wan
 python -m pip check
 ```
 
 bootstrap 會 clone 並安裝 AllTracker、SAM2、VGGT、PyTorch3D，
-clone fTetWild source，並記錄 Git revision 到 `third_party/revisions.json`。
-LTX 路徑不 clone Wan；已存在的 Wan 目錄與版本記錄會保留。
+clone Wan 和 fTetWild source，並記錄 Git revision 到 `third_party/revisions.json`。
 
 PyTorch3D 需要 C++/CUDA 編譯，第一次安裝較久。
 記憶體不足時把 `MAX_JOBS=2` 改成 `MAX_JOBS=1`。
@@ -369,7 +335,7 @@ animimic assets list
 animimic assets fetch --asset horse
 animimic inspect assets/downloads/horse/model.glb
 animimic assets preview --asset horse --output runs/asset-previews
-animimic preflight --config configs/horse-ltx.yaml
+animimic preflight --config configs/experiments/horse-textured-wan-leftforeleg-grouped-tracks.yaml
 ```
 
 資產會存到 `assets/downloads/horse/`，包含 GLB、hash 與 attribution manifest。
@@ -380,7 +346,7 @@ preflight 會檢查完整 pipeline 的套件、repo、CUDA 與 fTetWild；
 ### 6.5 開始執行
 
 ```bash
-bash scripts/08_run_pipeline.sh configs/horse-ltx.yaml
+bash scripts/08_run_pipeline.sh configs/experiments/horse-textured-wan-leftforeleg-grouped-tracks.yaml
 ```
 
 完整流程依序是 `prepare → render → video → supervision → joints → tetrahedralize → physics → export`。
@@ -391,7 +357,7 @@ Stage 1 用這些觀測擬合骨架，Stage 2 以骨架動作為邊界條件進�
 只想檢查觀測資料時，可跑到 supervision 並開啟除錯圖。
 
 ```bash
-bash scripts/08_run_pipeline.sh configs/horse-ltx.yaml --until-stage supervision --debug-images
+bash scripts/08_run_pipeline.sh configs/experiments/horse-textured-wan-leftforeleg-grouped-tracks.yaml --until-stage supervision --debug-images
 ```
 
 除錯圖預設關閉。開啟後會在 `runs/<asset>/<run-id>/supervision-review/` 輸出每個取樣幀的
@@ -400,14 +366,13 @@ bash scripts/08_run_pipeline.sh configs/horse-ltx.yaml --until-stage supervision
 若要先檢查 joint、暫時不跑 FEM：
 
 ```bash
-bash scripts/08_run_pipeline.sh configs/horse-textured-ltx-5s.yaml --until-stage joints
-# 原影片使用 Wan 時，加上 --video-backend wan，保持相同 backend。
+bash scripts/08_run_pipeline.sh configs/experiments/horse-textured-wan-leftforeleg-grouped-tracks.yaml --until-stage joints
 ```
 
 結果會在 `runs/<asset>/<run-id>/joint-review/`，包含並排比較、左右斜側面與 GLB。
 joint 預覽會以來源影片 fps 插值輸出，避免五秒僅 25 幀的低幀率跳動。
 joint 預覽與預設關閉的穩定化實驗，見 [Joint 預覽與設定](docs/joint-stability.md)。
-論文差異、監督檢查與 `14_review_supervision.sh` 用法，見 [實作核對報告](docs/paper-implementation-audit.md)。
+論文差異和從快取檢查監督資料的方法，見 [實作核對報告](docs/paper-implementation-audit.md)。
 
 終端機會列出目前階段、是否使用快取，以及各最佳化階段的迭代進度，例如：
 
@@ -426,11 +391,10 @@ ETA 依目前階段已完成的迭代估算，不包含後續階段。較長的�
 
 | 模組 | 預設權重來源 | 下載方式 |
 | --- | --- | --- |
-| LTX | `Lightricks/LTX-Video` | 首次推論自動下載 |
 | SAM2 | `facebook/sam2.1-hiera-large` | 首次 supervision 自動下載 |
 | AllTracker | `aharley/alltracker/alltracker.pth` | 首次 tracking 自動下載 |
 | VGGT | `facebook/VGGT-1B` | 首次 depth inference 自動下載 |
-| Wan | `Wan-AI/Wan2.2-TI2V-5B` | 改用 Wan 時手動下載，見下一節 |
+| Wan | `Wan-AI/Wan2.2-TI2V-5B` | 手動下載，見下一節 |
 
 權重可能佔用大量磁碟空間。預設 Hugging Face / Torch cache 通常在家目錄；
 若家目錄配額小，可在執行前改放到有空間的工作磁碟，例如：
@@ -444,29 +408,18 @@ export TORCH_HOME="$PWD/.cache/torch"
 一般公開下載不需要 token；若 Hugging Face 回傳存取限制，
 請依相應模型頁完成帳號／授權設定。
 
-## 7. 改用 Wan，或切回 LTX
+## 7. Wan 權重與生成參數
 
-Wan 的安裝與權重保留為獨立路徑：
+安裝完依賴後，下載 Wan 權重：
 
 ```bash
-MAX_JOBS=2 python scripts/bootstrap.py --video-backend wan
-huggingface-cli download Wan-AI/Wan2.2-TI2V-5B --local-dir weights/Wan2.2-TI2V-5B
-animimic preflight --config configs/fox.yaml
-animimic run --config configs/fox.yaml
+bash scripts/09_download_wan.sh
 ```
 
-`huggingface-cli` 由此環境的 huggingface-hub 套件提供。
 需要另一個權重／repo 路徑時，可修改 YAML 的 `video.checkpoint`、
 `video.repo`。預設 Wan 是 1280×704、121 幀，使用 model offload 與 CPU T5。
 
-也能用 CLI 切換：
-
-```bash
-animimic run --config configs/fox.yaml --video-backend ltx
-```
-
-切換 backend 時會保留 prompt/seed，重設另一個模型不能沿用的參數。
-要精確控制解析度、幀數、steps，請編輯 YAML。
+要精確控制解析度、幀數和推論步數，請編輯 YAML。
 完整說明見 [本地影片模型與動物指南](docs/local-video.md)。
 
 ## 8. 資產、設定與自己的影片
@@ -476,11 +429,11 @@ Fox 與舊馬保留作外觀除錯；動物的來源、面數、骨架數、
 授權與實際預覽都在 [資產指南](docs/local-video.md)。
 每次只需下載要用的角色，不必下載整套 Objaverse。
 
-例如改跑狗：
+例如下載狗模型做預覽：
 
 ```bash
 animimic assets fetch --asset puppy
-animimic run --config configs/puppy-ltx.yaml
+animimic assets preview --asset puppy --output runs/asset-previews
 ```
 
 自訂 GLB 或重用現成影片，可在複製的 YAML 加上：
@@ -490,7 +443,7 @@ asset: my_character
 asset_path: /absolute/path/to/rigged-model.glb
 reference_video: /absolute/path/to/reference.mp4
 video:
-  backend: ltx
+  backend: wan
   fps: 24
   sample_frames: 25
 ```
@@ -528,7 +481,7 @@ animimic inspect runs/horse/你的-run-id
 若已有前段 cache，可從指定 stage 開始：
 
 ```bash
-animimic run --config configs/horse-ltx.yaml --from-stage joints
+animimic run --config configs/experiments/horse-textured-wan-leftforeleg-grouped-tracks.yaml --from-stage joints
 ```
 
 此指令要求相同設定的前置 cache 存在；若缺少，請先用一般 `run`。
@@ -560,7 +513,7 @@ python -m pip check
 | PyTorch3D 編譯失敗 | 檢查 torch/torchvision、nvcc/toolkit、GCC 相容性；用 MAX_JOBS=1 降低記憶體 |
 | Wan 安裝 flash_attn 時顯示 `No module named 'torch'` 或 `Invalid cross-device link` | 更新後重跑 `03_install_pipeline.sh wan`；腳本會依 Python、CUDA、PyTorch 與 C++ ABI 自動選取官方預編譯 wheel，避開 source build 的搬移流程 |
 | `FloatTetwild_bin` 找不到 | 完成 6.3 並設定 PATH 或 physics.tetwild_executable |
-| GPU OOM | 先用 LTX；降低 video.width/height（32 的倍數）、num_frames（8k+1） |
+| GPU OOM | 啟用 `video.cpu_export`，或降低生成解析度和幀數 |
 | 權重下載空間不足 | 把 HF_HOME / TORCH_HOME 設到有空間的磁碟 |
 | source requirements 衝突 | 記錄錯誤與第三方 Git revisions；不要直接把固定版本全升到最新版 |
 

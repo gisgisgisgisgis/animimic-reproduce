@@ -121,14 +121,13 @@ class NormalizedObjectiveTests(unittest.TestCase):
                 results.append(result['vertices'])
         np.testing.assert_array_equal(*results)
 
-    def test_presets_keep_video_and_camera_identical(self):
+    def test_grouped_tracks_preset_uses_normalized_objective(self):
         root = Path(__file__).resolve().parents[1]/'configs/experiments'
-        baseline = load_config(root/'horse-textured-wan-joint-balanced.yaml')
-        for name in ('horse-textured-wan-normalized.yaml', 'horse-textured-wan-normalized-rigid.yaml'):
-            config = load_config(root/name)
-            self.assertEqual(config['video'], baseline['video'])
-            self.assertEqual(config['camera'], baseline['camera'])
-            self.assertEqual(config['asset'], baseline['asset'])
+        config = load_config(root/'horse-textured-wan-leftforeleg-grouped-tracks.yaml')
+        self.assertEqual(config['joints']['objective'], 'normalized')
+        self.assertGreater(objective_weights(config['joints'])['rigid'], 0)
+
+    def test_unknown_objective_is_rejected(self):
         with self.assertRaises(ValueError):
             objective_weights(dict(objective='typo'))
 

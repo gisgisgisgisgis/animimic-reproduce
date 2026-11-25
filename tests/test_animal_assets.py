@@ -14,6 +14,7 @@ class AnimalAssetsTests(unittest.TestCase):
             self.assertEqual(len(ASSET_HASHES[name]), 64)
             self.assertTrue(spec["source"].startswith("https://sketchfab.com/"))
             self.assertEqual(spec["license"], "CC BY 4.0")
-            config = load_config(spec.get("config", f"configs/{name}-ltx.yaml"))
-            self.assertEqual(config["asset"], name)
-            self.assertEqual(config["video"]["backend"], "ltx")
+            if "config" in spec:
+                config = load_config(spec["config"])
+                self.assertEqual(config["asset"], name)
+                self.assertEqual(config["video"]["backend"], "wan")

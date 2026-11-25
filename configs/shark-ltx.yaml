@@ -1,8 +1,0 @@
-asset: shark
-video:
-  backend: ltx
-  prompt: A shark slowly swims in place moving its tail, whole body visible, static camera and unchanged plain background.
-  seed: 2026
-  num_frames: 49
-  sample_frames: 25
-  fps: 24

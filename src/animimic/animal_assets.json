@@ -105,7 +105,7 @@
       2048
     ],
     "rig_nodes": 51,
-    "config": "configs/horse-textured-ltx.yaml",
+    "config": "configs/experiments/horse-textured-wan-leftforeleg-grouped-tracks.yaml",
     "preview_camera": {
       "lighting": "unlit",
       "srgb": true,

@@ -1,8 +1,0 @@
-asset: seagull
-video:
-  backend: ltx
-  prompt: A seagull gently flaps its wings while hovering in place, whole body visible, static camera and unchanged plain background.
-  seed: 2026
-  num_frames: 49
-  sample_frames: 25
-  fps: 24

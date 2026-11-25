@@ -169,10 +169,10 @@ class ShellEntrypointTests(unittest.TestCase):
         self.assertEqual(record["hf"], str(caller/"hf cache"))
 
     def test_review_stops_at_requested_stage(self):
-        record, caller = self.invoke("13_review_video.sh", ["my config.yaml", "--render-only"])
+        record, caller = self.invoke("08_run_pipeline.sh", ["my config.yaml", "--until-stage", "render"])
         self.assertEqual(record["args"], ["-m", "animimic.cli", "run", "--config",
                          str(caller/"my config.yaml"), "--until-stage", "render"])
-        record, _ = self.invoke("13_review_video.sh", [])
+        record, _ = self.invoke("08_run_pipeline.sh", ["--until-stage", "video"])
         self.assertEqual(record["args"][-2:], ["--until-stage", "video"])
 
     def test_video_keeps_caller_relative_paths_with_spaces(self):

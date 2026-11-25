@@ -124,10 +124,9 @@ PyTorch3D 的 screen projection 用 `(x+0.5, y+0.5)`，AllTracker 的 pixel grid
 
 ```bash
 conda activate animimic
-export ANIMIMIC_ENV_DIR="$CONDA_PREFIX"
-bash scripts/14_review_supervision.sh \
+python -m animimic.supervision_review \
   .cache/animimic/supervision/實際的快取目錄/supervision.npz \
-  runs/my-supervision-review
+  --output runs/my-supervision-review
 ```
 
 輸出 `supervision-review.jpg`（原影片／mask + tracks 疊圖）、JSON 與逐幀 CSV。
