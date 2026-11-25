@@ -27,3 +27,6 @@ video:
   sample_frames: 25
   num_inference_steps: 50
   guidance_scale: 5.0
+arap:
+  weight: 0.01
+  iterations: 15

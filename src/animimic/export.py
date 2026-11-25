@@ -84,11 +84,11 @@ def export_glb(path, rig, local, fps):
                      + struct.pack("<II", len(payload), 0x004E4942)+payload)
 
 
-def previews(directory, rig, joints, physics, renderer, reference, fps):
+def previews(directory, rig, joints, physics, renderer, reference, fps, *, arap=None):
     import imageio.v2 as iio
     import torch
     from .render import Renderer
-    for label, trajectory in (("joint", joints), ("physics", physics)):
+    for label, trajectory in (("joint", joints), ("physics", physics), ("arap", arap)):
         if trajectory is None:
             continue
         for azimuth in (0, -45, 45):

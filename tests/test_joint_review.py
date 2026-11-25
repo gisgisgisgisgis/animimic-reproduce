@@ -43,6 +43,7 @@ class JointReviewTests(unittest.TestCase):
                 output_root=str(root/"runs"), cache_root=str(root/"cache"),
                 camera=dict(width=32, height=32),
                 video=dict(backend="ltx", prompt="fixture", num_frames=9, fps=24),
+                arap=dict(weight=.01, iterations=2),
                 joints=dict(root_iterations=0, geometry_iterations=1, full_iterations=0))
             def generate(image, output, settings):
                 with Image.open(image) as picture:
@@ -82,3 +83,8 @@ class JointReviewTests(unittest.TestCase):
             finally:
                 reader.close()
             self.assertTrue((preview/"joint.glb").is_file())
+            self.assertTrue((preview/"arap_0.mp4").is_file())
+            with np.load(preview/"arap_trajectory.npz") as result:
+                np.testing.assert_array_equal(result["indices"], [0, 4, 8])
+                self.assertEqual(result["vertices"].shape, (3, 3, 3))
+                self.assertTrue(np.isfinite(result["vertices"]).all())

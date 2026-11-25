@@ -371,6 +371,9 @@ bash scripts/08_run_pipeline.sh configs/horse.yaml --until-stage joints
 
 結果會在 `runs/<asset>/<run-id>/joint-review/`，包含並排比較、左右斜側面與 GLB。
 joint 預覽會以來源影片 fps 插值輸出，避免五秒僅 25 幀的低幀率跳動。
+馬的設定也會用 ARAP 修正 Stage 1 表面拉伸，額外輸出 `arap_0.mp4` 和
+`arap_trajectory.npz`。完整流程的同名檔案在 export 目錄，FEM 仍使用 Stage 1 的骨架變換。
+刪除設定中的 `arap` 區塊可關閉這個後處理。
 joint 預覽與預設關閉的穩定化實驗，見 [Joint 預覽與設定](docs/joint-stability.md)。
 論文差異和從快取檢查監督資料的方法，見 [實作核對報告](docs/paper-implementation-audit.md)。
 

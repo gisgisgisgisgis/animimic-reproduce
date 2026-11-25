@@ -221,11 +221,26 @@ def run(config, force_stage=None, from_stage=None, until_stage=None, *, debug_im
         ["rig.py", "optimize.py", "losses.py", "render.py", "evaluate.py"])
     joint_path = joint_dir/"joint_trajectory.npz"
     joint = dict(np.load(joint_path))
+    arap_settings = config.get("arap")
+    dt = float(np.diff(indices).mean())/video_fps
+
+    def refine_arap(out):
+        if arap_settings is None:
+            return None
+        from .arap import refine_surface
+        print("[arap] Refining Stage 1 surface", flush=True)
+        vertices = refine_surface(raw["vertices"], raw["faces"], joint["vertices"], **arap_settings)
+        np.savez_compressed(out/"arap_trajectory.npz", vertices=vertices, indices=indices)
+        return torch.as_tensor(vertices, device=device)
+
     if until_stage == "joints":
         review_dir = run_dir/"joint-review"
         write_joint_review(review_dir, rig, joint["local"], renderer,
                            reference_video, indices, video_fps)
         shutil.copy2(joint_dir/"joint_diagnostics.json", review_dir/"joint_diagnostics.json")
+        if arap_settings is not None:
+            previews(review_dir, rig, None, None, renderer,
+                     (target_raw["frames"]*255).astype(np.uint8), 1/dt, arap=refine_arap(review_dir))
         print(f"[review] Joint animation: {review_dir/'joint_0.mp4'}", flush=True)
         print("[review] Stopped after joints; no tetrahedralization or FEM was run.", flush=True)
         return run_dir
@@ -235,7 +250,6 @@ def run(config, force_stage=None, from_stage=None, until_stage=None, *, debug_im
     physics_settings = config.get("physics", {})
     tet_dir = stage("tetrahedralize", physics_settings, {"rig": rig_hash},
         lambda out: tetrahedralize(raw, out, physics_settings), ["physics.py"])
-    dt = float(np.diff(indices).mean())/video_fps
     # Eq. 13 reuses the image-space objective and lambda weights from Eq. 4.
     physics_config = {**physics_settings,
                       "objective": joint_config.get("objective", "paper"),
@@ -252,19 +266,25 @@ def run(config, force_stage=None, from_stage=None, until_stage=None, *, debug_im
                            reference_video, indices, video_fps)
         with np.load(physics_dir/"physics_trajectory.npz") as archive:
             physical = torch.as_tensor(archive["vertices"], device=device)
+        arap = refine_arap(out)
         trajectories = {
             "initial": rig["vertices"][None].expand(len(joint["vertices"]), -1, -1),
             "joint": torch.tensor(joint["vertices"], device=device),
             "physics": physical}
+        if arap is not None:
+            trajectories["arap"] = arap
         report = {name: metrics(value, rig, target, renderer)
                   for name, value in trajectories.items()}
         save_json(out/"metrics.json", report)
         previews(out, rig, None, physical, renderer,
-                 (target_raw["frames"]*255).astype(np.uint8), 1/dt)
-        return ["joint.glb", "joint-review.json", "metrics.json"]+[p.name for p in out.glob("*.mp4")]
-    stage("export", {}, {"joint": joint_hash,
+                 (target_raw["frames"]*255).astype(np.uint8), 1/dt, arap=arap)
+        artifacts = ["joint.glb", "joint-review.json", "metrics.json"]+[p.name for p in out.glob("*.mp4")]
+        return artifacts if arap is None else artifacts+["arap_trajectory.npz"]
+    export_settings = {} if arap_settings is None else {"arap": arap_settings}
+    stage("export", export_settings, {"joint": joint_hash,
         "physics": file_hash(physics_dir/"physics_trajectory.npz"),
         "video": video_hash, "fps": video_fps, "camera": camera,
         "supervision": supervision_hash}, export,
-        ["export.py", "evaluate.py", "render.py", "joint_review.py", "rig.py"])
+        ["export.py", "evaluate.py", "render.py", "joint_review.py", "rig.py"]
+        + (["arap.py"] if arap_settings is not None else []))
     return run_dir
