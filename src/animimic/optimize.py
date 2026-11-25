@@ -77,6 +77,8 @@ def normalized_video_loss(vertices, rig, target, renderer, progress, config, ren
     visible = visible.clone()
     visible[0] = True
     valid = valid & visible
+    if "exclude_tracks" in target:
+        valid = valid & ~target["exclude_tracks"].bool()
     depth_target = standardize_depth(target["depth"], canonical_depth, valid)
     def masked_mean(error):
         return torch.where(valid, error, torch.zeros_like(error)).sum()/valid.sum().clamp_min(1)
@@ -91,10 +93,17 @@ def normalized_video_loss(vertices, rig, target, renderer, progress, config, ren
         truth = target["frames"][frame]*mask[..., None]+1-mask[..., None]
         rgb.append((image-truth).abs().mean())
         masks.append((alpha-mask).abs().mean())
-    return {"rgb": torch.stack(rgb).mean(), "mask": torch.stack(masks).mean(),
+    losses = {"rgb": torch.stack(rgb).mean(), "mask": torch.stack(masks).mean(),
             "track": masked_mean((projected-tracks).norm(dim=-1)/max(h, w)),
             "depth": masked_mean((depths-depth_target).abs()),
             "smooth": 3*smoothness(vertices)}
+    if "anchor_xy" in target:
+        faces = rig["faces"][target["anchor_triangles"]]
+        surface = (vertices[:, faces]*target["anchor_barycentric"][None, :, :, None]).sum(-2)
+        predicted = torch.stack([renderer.project(p) for p in surface])
+        error = (predicted-target["anchor_xy"]).norm(dim=-1)/max(h, w)
+        losses["anchor"] = error[target["anchor_valid"].bool()].mean()
+    return losses
 
 
 def fit_joints(rig, supervision, renderer, output, config):
