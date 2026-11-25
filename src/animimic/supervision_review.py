@@ -55,7 +55,7 @@ def summarize(data):
         note="Metrics flag inconsistencies for inspection; they do not establish a cause or change targets.")
 
 
-def write_track_frames(data, output, rig, groups):
+def grouped_track_frames(data, output, rig, groups):
     from .track_sampling import track_part_ids
 
     names, part_ids = track_part_ids(rig, data["triangles"], data["barycentric"], groups)
@@ -91,7 +91,7 @@ def write_track_frames(data, output, rig, groups):
                 draw.text((width+26, row), f"{name}  {solid.sum()} / {assigned.sum()}", fill="black")
                 csv_writer.writerow([index, name, assigned.sum(), (assigned & in_frame).sum(),
                                      (assigned & confidence).sum(), solid.sum()])
-            canvas.save(output/f"tracks-{int(index):05d}.png")
+            yield canvas
 
 
 def draw_tracks(image, data, frame):
@@ -103,7 +103,38 @@ def draw_tracks(image, data, frame):
             draw.ellipse((x-1, y-1, x+1, y+1), fill="cyan" if visible else "red")
 
 
-def write_review(path, output, *, rig=None, groups=None):
+def write_review_video(output, data, source_fps, depth_range, track_frames):
+    import imageio.v2 as iio
+
+    path = output/"supervision-review.mp4"
+    indices = data["indices"]
+    with iio.get_writer(path, fps=source_fps, macro_block_size=1) as writer:
+        ends = np.r_[indices[1:], indices[-1]+1]
+        for i, (track, index, end) in enumerate(zip(track_frames, indices, ends)):
+            mask = Image.fromarray((data["masks"][i] > .5).astype(np.uint8)*255)
+            panels = [(track, "AllTracker"), (mask, "SAM2 mask")]
+            if depth_range is not None:
+                near, far = depth_range
+                depth = data["depth_maps"][i]
+                scaled = np.clip((depth-near)/max(far-near, 1e-8), 0, 1)
+                scaled = np.where(np.isfinite(depth), scaled, 0.)
+                panels.append((Image.fromarray((scaled*255).astype(np.uint8)), "VGGT depth"))
+            width = sum(image.width for image, _ in panels)
+            height = max(image.height for image, _ in panels)+24
+            canvas = Image.new("RGB", (width+width%2, height+height%2), "white")
+            draw = ImageDraw.Draw(canvas)
+            x = 0
+            for image, title in panels:
+                canvas.paste(image, (x, 24))
+                draw.text((x+4, 5), f"{title} | frame {int(index)}", fill="black")
+                x += image.width
+            frame = np.asarray(canvas)
+            for _ in range(int(end-index)):
+                writer.append_data(frame)
+    return path
+
+
+def write_review(path, output, *, rig=None, groups=None, source_fps=24.):
     output = Path(output)
     output.mkdir(parents=True, exist_ok=True)
     with np.load(path, allow_pickle=False) as archive:
@@ -118,18 +149,12 @@ def write_review(path, output, *, rig=None, groups=None):
     indices = np.unique(np.linspace(0, len(rows)-1, min(6, len(rows))).astype(int))
     h, w = data["masks"].shape[1:]
     depths = data.get("depth_maps")
+    depth_range = None
     if depths is not None:
         finite = np.isfinite(depths)
         near, far = np.percentile(depths[finite], [2, 98]) if finite.any() else (0., 1.)
-        report["depth_display_range"] = [float(near), float(far)]
-    for i, index in enumerate(data["indices"]):
-        Image.fromarray((data["masks"][i] > .5).astype(np.uint8)*255).save(
-            output/f"sam-mask-{int(index):05d}.png")
-        if depths is not None:
-            scaled = np.clip((depths[i]-near)/max(far-near, 1e-8), 0, 1)
-            scaled = np.where(finite[i], scaled, 0.)
-            Image.fromarray((scaled*255).astype(np.uint8)).save(
-                output/f"vggt-depth-{int(index):05d}.png")
+        depth_range = float(near), float(far)
+        report["depth_display_range"] = depth_range
     sheet = Image.new("RGB", (w*2, (h+25)*len(indices)), "white")
     for row, i in enumerate(indices):
         frame = (np.clip(data["frames"][i], 0, 1)*255).astype(np.uint8)
@@ -143,14 +168,15 @@ def write_review(path, output, *, rig=None, groups=None):
         ImageDraw.Draw(sheet).text((4, row*(h+25)+h+4),
             f"frame {i} / source {data['indices'][i]} | mask green | reliable tracks cyan; others red", fill="black")
     sheet.save(output/"supervision-review.jpg")
-    if groups:
-        write_track_frames(data, output, rig, groups)
-    else:
-        for i, index in enumerate(data["indices"]):
-            frame = (np.clip(data["frames"][i], 0, 1)*255).astype(np.uint8)
-            image = Image.fromarray(frame)
+    def plain_track_frames():
+        for i, frame in enumerate(data["frames"]):
+            image = Image.fromarray((np.clip(frame, 0, 1)*255).astype(np.uint8))
             draw_tracks(image, data, i)
-            image.save(output/f"tracks-{int(index):05d}.png")
+            yield image
+
+    track_frames = grouped_track_frames(data, output, rig, groups) if groups else plain_track_frames()
+    video = write_review_video(output, data, source_fps, depth_range, track_frames)
+    report["video"] = video.name
     (output/"supervision-review.json").write_text(json.dumps(report, indent=2)+"\n")
     return report
 
@@ -161,6 +187,8 @@ def main():
     parser.add_argument("--output", default="runs/supervision-review")
     parser.add_argument("--rig", help="Path to the prepared rig.npz for part-colored overlays")
     parser.add_argument("--config", help="YAML containing supervision.track_groups")
+    parser.add_argument("--source-fps", type=float, default=24.,
+                        help="Original video frame rate for the review MP4 (default: 24)")
     args = parser.parse_args()
     if bool(args.rig) != bool(args.config):
         parser.error("--rig and --config must be supplied together")
@@ -170,7 +198,8 @@ def main():
         groups = yaml.safe_load(Path(args.config).read_text())["supervision"]["track_groups"]
         with np.load(args.rig, allow_pickle=False) as saved:
             rig = {key: saved[key] for key in ("faces", "weights")}
-    report = write_review(args.supervision, args.output, rig=rig, groups=groups)
+    report = write_review(args.supervision, args.output, rig=rig, groups=groups,
+                          source_fps=args.source_fps)
     print(f"Inspected {report['frames']} frames, {report['tracks']} tracks: {args.output}")
 
 

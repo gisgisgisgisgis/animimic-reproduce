@@ -48,3 +48,19 @@ class SupervisionReviewTests(unittest.TestCase):
         last = summarize(data)['per_frame'][-1]
         self.assertIsNone(last['depth_mad'])
         self.assertIsNone(last['reliable_inside_mask'])
+
+    def test_review_video_keeps_source_timeline_and_depth_panel(self):
+        import imageio.v2 as iio
+
+        data = self.data()
+        data["depth_maps"] = np.broadcast_to(np.arange(10), data["masks"].shape)
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary)
+            path = output/"supervision.npz"
+            np.savez(path, **data)
+            report = write_review(path, output, source_fps=30.)
+            self.assertEqual(list(output.glob("*.png")), [])
+            with iio.get_reader(output/report["video"]) as video:
+                self.assertEqual(video.count_frames(), 11)
+                self.assertEqual(video.get_meta_data()["fps"], 30.)
+                self.assertEqual(video.get_meta_data()["size"], (30, 32))

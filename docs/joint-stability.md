@@ -12,10 +12,9 @@ bash scripts/08_run_pipeline.sh configs/experiments/horse-textured-wan-leftforel
 同一部位內由中央開始，反覆選離已選點最遠的可見像素。取不到點的部位會留空，
 其額度分給其他可見部位。設定中的骨架索引適用於目前的 `horse_textured` GLB。
 
-終端機會印出 `supervision-review/` 的位置。裡面每個 `tracks-XXXXX.png` 對應
-一個來源影格，顏色代表點最初對應的部位。實心表示 visibility × confidence > 0.5
+終端機會印出 `supervision-review.mp4` 的位置。追蹤點、SAM2 遮罩和 VGGT 深度會並排，
+畫面上會標出來源影格。顏色代表點最初對應的部位。實心表示 visibility × confidence > 0.5
 且位置落在 SAM2 遮罩內。這只用來篩查，仍要目視確認點是否跟在正確的腳上。
-`sam-mask-XXXXX.png` 與 `vggt-depth-XXXXX.png` 使用同一批來源影格編號。
 `--debug-images` 預設關閉，開啟後可以直接從 supervision 快取產圖。
 `track-parts.csv` 記錄各部位在每幀的點數。看完後用同一份設定加
 `--from-stage joints --until-stage joints` 重用追蹤資料進行骨架擬合。

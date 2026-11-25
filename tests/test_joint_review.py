@@ -76,14 +76,11 @@ class JointReviewTests(unittest.TestCase):
             self.assertEqual(report["sampled_frames"], 3)
             self.assertEqual(report["output_frames"], 9)
             self.assertEqual(report["fps"], 8)
-            reader = iio.get_reader(str(preview/"joint_0.mp4"))
-            try:
-                self.assertEqual(reader.count_frames(), 9)
-                self.assertEqual(reader.get_meta_data()["fps"], 8)
-            finally:
-                reader.close()
+            for name in ("joint_0.mp4", "arap_0.mp4"):
+                with iio.get_reader(str(preview/name)) as reader:
+                    self.assertEqual(reader.count_frames(), 9)
+                    self.assertEqual(reader.get_meta_data()["fps"], 8)
             self.assertTrue((preview/"joint.glb").is_file())
-            self.assertTrue((preview/"arap_0.mp4").is_file())
             with np.load(preview/"arap_trajectory.npz") as result:
                 np.testing.assert_array_equal(result["indices"], [0, 4, 8])
                 self.assertEqual(result["vertices"].shape, (3, 3, 3))

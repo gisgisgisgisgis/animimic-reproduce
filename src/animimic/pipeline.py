@@ -37,7 +37,7 @@ def run(config, force_stage=None, from_stage=None, until_stage=None, *, debug_im
     from .video_backends import generate_video, backend_name
     from .optimize import tensors, fit_joints
     from .render import Renderer
-    from .export import previews
+    from .export import previews, write_arap_review
     from .evaluate import metrics
 
     device = config.get("device", "cuda")
@@ -196,11 +196,14 @@ def run(config, force_stage=None, from_stage=None, until_stage=None, *, debug_im
          **({"rig": rig_hash} if groups else {})},
         supervise, ["models.py", "render.py"] + (["track_sampling.py"] if groups else []))
     supervision_path = supervised/"supervision.npz"
+    from .joint_review import source_fps, write_joint_review
+    if debug_images or until_stage != "supervision":
+        video_fps = source_fps(reference_video)
     if debug_images:
         from .supervision_review import write_review
         review = run_dir/"supervision-review"
-        write_review(supervision_path, review, rig=raw, groups=groups)
-        print(f"[review] Supervision: {review}", flush=True)
+        write_review(supervision_path, review, rig=raw, groups=groups, source_fps=video_fps)
+        print(f"[review] Supervision: {review/'supervision-review.mp4'}", flush=True)
     if until_stage == "supervision":
         return run_dir
     supervision_hash = file_hash(supervision_path)
@@ -209,8 +212,6 @@ def run(config, force_stage=None, from_stage=None, until_stage=None, *, debug_im
     target = {k: torch.as_tensor(v, device=device,
               dtype=torch.long if k in ("triangles", "indices") else torch.float32)
               for k, v in target_raw.items()}
-    from .joint_review import source_fps, write_joint_review
-    video_fps = source_fps(reference_video)
     indices = target_raw["indices"]
     target["frame_times"] = torch.as_tensor(indices/video_fps, device=device, dtype=torch.float32)
     joint_config = config.get("joints", {})
@@ -231,6 +232,7 @@ def run(config, force_stage=None, from_stage=None, until_stage=None, *, debug_im
         print("[arap] Refining Stage 1 surface", flush=True)
         vertices = refine_surface(raw["vertices"], raw["faces"], joint["vertices"], **arap_settings)
         np.savez_compressed(out/"arap_trajectory.npz", vertices=vertices, indices=indices)
+        write_arap_review(out, rig, vertices, renderer, reference_video, indices, video_fps)
         return torch.as_tensor(vertices, device=device)
 
     if until_stage == "joints":
@@ -238,9 +240,7 @@ def run(config, force_stage=None, from_stage=None, until_stage=None, *, debug_im
         write_joint_review(review_dir, rig, joint["local"], renderer,
                            reference_video, indices, video_fps)
         shutil.copy2(joint_dir/"joint_diagnostics.json", review_dir/"joint_diagnostics.json")
-        if arap_settings is not None:
-            previews(review_dir, rig, None, None, renderer,
-                     (target_raw["frames"]*255).astype(np.uint8), 1/dt, arap=refine_arap(review_dir))
+        refine_arap(review_dir)
         print(f"[review] Joint animation: {review_dir/'joint_0.mp4'}", flush=True)
         print("[review] Stopped after joints; no tetrahedralization or FEM was run.", flush=True)
         return run_dir
@@ -277,7 +277,7 @@ def run(config, force_stage=None, from_stage=None, until_stage=None, *, debug_im
                   for name, value in trajectories.items()}
         save_json(out/"metrics.json", report)
         previews(out, rig, None, physical, renderer,
-                 (target_raw["frames"]*255).astype(np.uint8), 1/dt, arap=arap)
+                 (target_raw["frames"]*255).astype(np.uint8), 1/dt)
         artifacts = ["joint.glb", "joint-review.json", "metrics.json"]+[p.name for p in out.glob("*.mp4")]
         return artifacts if arap is None else artifacts+["arap_trajectory.npz"]
     export_settings = {} if arap_settings is None else {"arap": arap_settings}

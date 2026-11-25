@@ -99,7 +99,7 @@ def main():
     run.add_argument("--video-dir", type=Path,
                      help="Run the pipeline once for each MP4 in this directory")
     run.add_argument("--debug-images", action="store_true",
-                     help="Export per-frame tracker, SAM2 mask and VGGT depth images")
+                     help="Export a review video with tracker, SAM2 mask and VGGT depth panels")
     run.add_argument("--video-backend", choices=("wan", "ltx"))
     videos = sub.add_parser("video")
     videos.add_argument("--config", required=True)

@@ -84,14 +84,14 @@ def export_glb(path, rig, local, fps):
                      + struct.pack("<II", len(payload), 0x004E4942)+payload)
 
 
-def previews(directory, rig, joints, physics, renderer, reference, fps, *, arap=None):
+def previews(directory, rig, joints, physics, renderer, reference, fps, *, arap=None, azimuths=(0, -45, 45)):
     import imageio.v2 as iio
     import torch
     from .render import Renderer
     for label, trajectory in (("joint", joints), ("physics", physics), ("arap", arap)):
         if trajectory is None:
             continue
-        for azimuth in (0, -45, 45):
+        for azimuth in azimuths:
             view = renderer if azimuth == 0 else Renderer(
                 rig["vertices"].device,
                 **{**renderer.settings, "azimuth": renderer.settings["azimuth"]+azimuth})
@@ -103,5 +103,27 @@ def previews(directory, rig, joints, physics, renderer, reference, fps, *, arap=
                         rgb, _ = view(vertices, rig["faces"], rig["colors"])
                         image = (rgb.clamp(0, 1).cpu().numpy()*255).astype(np.uint8)
                         if azimuth == 0:
-                            image = np.concatenate((reference[t], image), axis=1)
+                            frame = reference(t) if callable(reference) else reference[t]
+                            image = np.concatenate((frame, image), axis=1)
                         writer.append_data(image)
+
+
+def write_arap_review(directory, rig, vertices, renderer, video, indices, fps, *, azimuths=(0, -45, 45)):
+    import imageio.v2 as iio
+    import torch
+    from PIL import Image
+
+    indices = np.asarray(indices)
+    frames = np.arange(int(indices[-1])+1)
+    right = np.searchsorted(indices, frames).clip(1, len(indices)-1)
+    left = right-1
+    fraction = ((frames-indices[left])/(indices[right]-indices[left])).clip(0, 1)
+    vertices = torch.as_tensor(vertices, device=rig["vertices"].device)
+    fraction = vertices.new_tensor(fraction)[:, None, None]
+    interpolated = torch.lerp(vertices[left], vertices[right], fraction)
+    with iio.get_reader(str(video)) as reader:
+        def reference_frame(frame):
+            return np.asarray(Image.fromarray(reader.get_data(frame)).resize(renderer.size[::-1]))
+
+        previews(directory, rig, None, None, renderer, reference_frame, fps,
+                 arap=interpolated, azimuths=azimuths)

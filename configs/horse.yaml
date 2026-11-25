@@ -30,3 +30,6 @@ video:
 arap:
   weight: 0.01
   iterations: 15
+physics:
+  coarse_iterations: 10
+  fine_iterations: 10

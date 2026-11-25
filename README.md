@@ -360,8 +360,9 @@ Stage 1 用這些觀測擬合骨架，Stage 2 以骨架動作為邊界條件進�
 bash scripts/08_run_pipeline.sh configs/horse.yaml --until-stage supervision --debug-images
 ```
 
-除錯圖預設關閉。開啟後會在 `runs/<asset>/<run-id>/supervision-review/` 輸出每個取樣幀的
-追蹤點、SAM2 遮罩及 VGGT 深度圖，也可直接使用已有的 supervision 快取。
+除錯輸出預設關閉。開啟後會在 `runs/<asset>/<run-id>/supervision-review/` 將追蹤點、
+SAM2 遮罩及 VGGT 深度並排存成 `supervision-review.mp4`。
+影片沿用來源 FPS，取樣之間停留在上一張觀測圖。已有 supervision 快取時可直接產出。
 
 若要先檢查 joint、暫時不跑 FEM：
 
@@ -373,6 +374,7 @@ bash scripts/08_run_pipeline.sh configs/horse.yaml --until-stage joints
 joint 預覽會以來源影片 fps 插值輸出，避免五秒僅 25 幀的低幀率跳動。
 馬的設定也會用 ARAP 修正 Stage 1 表面拉伸，額外輸出 `arap_0.mp4` 和
 `arap_trajectory.npz`。完整流程的同名檔案在 export 目錄，FEM 仍使用 Stage 1 的骨架變換。
+ARAP 預覽插值到和 joint 預覽相同的幀數與 FPS，NPZ 保留原本的取樣幀。
 刪除設定中的 `arap` 區塊可關閉這個後處理。
 joint 預覽與預設關閉的穩定化實驗，見 [Joint 預覽與設定](docs/joint-stability.md)。
 論文差異和從快取檢查監督資料的方法，見 [實作核對報告](docs/paper-implementation-audit.md)。
