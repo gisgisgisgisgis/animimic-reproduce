@@ -46,12 +46,12 @@ def run(config, force_stage=None, from_stage=None, until_stage=None, *, debug_im
     asset = Path(config["asset_path"]) if "asset_path" in config else fetch_asset(
         config["asset"], "assets/downloads")
     cache = Cache(config.get("cache_root", ".cache/animimic"))
-    run_id = digest({"config": config, "asset_sha256": file_hash(asset)})[:12]
+    asset_hash = file_hash(asset)
+    run_id = digest({"config": config, "asset_sha256": asset_hash})[:12]
     run_dir = Path(config.get("output_root", "runs"))/config["asset"]/run_id
-    manifest = {"config": config, "asset_sha256": file_hash(asset), "stages": {},
+    manifest = {"config": config, "asset_sha256": asset_hash, "stages": {},
                 "versions": {"torch": torch.__version__,
                              "cuda": torch.version.cuda}}
-    directories = {}
     source = Path(__file__).parent
     # Each stage includes only its own settings and ancestors, so optimizer changes
     # do not invalidate a saved reference video.
@@ -81,7 +81,6 @@ def run(config, force_stage=None, from_stage=None, until_stage=None, *, debug_im
             raise
         print(f"[{label}] {'Complete' if produced else 'Cache hit'} "
               f"| elapsed {duration(time.monotonic()-started)}", flush=True)
-        directories[name] = directory
         record = json.loads((directory/"stage.json").read_text())
         manifest["stages"][name] = {"status": "complete", "directory": str(directory),
                                     "artifacts": record["files"]}
@@ -99,31 +98,36 @@ def run(config, force_stage=None, from_stage=None, until_stage=None, *, debug_im
     settings = {"rotation": config["asset_rotation"]} if config.get("asset_rotation") else {}
     if config.get("camera", {}).get("use_texture"):
         settings["uv_material"] = True
-    prepared = stage("prepare", settings, {"asset": file_hash(asset)}, prepare, ["glb.py"])
-    raw = dict(np.load(prepared/"rig.npz"))
+    prepared = stage("prepare", settings, {"asset": asset_hash}, prepare, ["glb.py"])
+    rig_path = prepared/"rig.npz"
+    rig_hash = file_hash(rig_path)
+    raw = dict(np.load(rig_path))
     rig = tensors(raw, device)
     camera = config.get("camera", {})
     renderer = Renderer(device, **camera)
     renderer.bind_material(rig)
+    video_config = config["video"]
+    backend = backend_name(video_config)
+
     def render(out):
         with torch.no_grad():
             image, mask = renderer(rig["vertices"], rig["faces"], rig["colors"])
         picture = Image.fromarray((image.clamp(0, 1).cpu().numpy()*255).astype(np.uint8))
         # Keep the legacy Wan image size; LTX uses the native render without a
         # redundant enlargement and resize back down.
-        if backend_name(config["video"]) == "wan":
+        if backend == "wan":
             picture = picture.resize((1280, 704))
         picture.save(out/"canonical.png")
         np.save(out/"mask.npy", mask.cpu().numpy())
         return ["canonical.png", "mask.npy"]
-    render_settings = camera if backend_name(config["video"]) == "wan" else {**camera, "native_image": True}
-    rendered = stage("render", render_settings, {"rig": file_hash(prepared/"rig.npz")},
+    render_settings = camera if backend == "wan" else {**camera, "native_image": True}
+    rendered = stage("render", render_settings, {"rig": rig_hash},
                      render, ["render.py"])
     shutil.copy2(rendered/"canonical.png", run_dir/"canonical.png")
     if until_stage == "render":
         print(f"[review] Input image: {run_dir/'canonical.png'}", flush=True)
         return run_dir
-    video_config = config["video"]
+
     def video(out):
         if config.get("reference_video"):
             shutil.copyfile(config["reference_video"], out/"reference.mp4")
@@ -131,7 +135,6 @@ def run(config, force_stage=None, from_stage=None, until_stage=None, *, debug_im
             generate_video(rendered/"canonical.png", out/"reference.mp4", video_config)
         return ["reference.mp4"]
     video_inputs = {"image": file_hash(rendered/"canonical.png")}
-    backend = backend_name(video_config)
     if backend == "wan":
         video_inputs["wan_revision"] = repo_revision(video_config.get("repo", "third_party/Wan2.2"))
     else:
@@ -140,18 +143,20 @@ def run(config, force_stage=None, from_stage=None, until_stage=None, *, debug_im
         video_inputs["external_video"] = file_hash(config["reference_video"])
     generated = stage("video", video_config, video_inputs, video,
                       ["models.py", "wan_worker.py"] if backend == "wan" else ["video_backends.py"])
+    reference_video = generated/"reference.mp4"
     if until_stage == "video":
         from .video_review import write_review
-        write_review(rendered/"canonical.png", generated/"reference.mp4", run_dir, video_config)
+        write_review(rendered/"canonical.png", reference_video, run_dir, video_config)
         print(f"[review] Video: {run_dir/'reference.mp4'}", flush=True)
         print(f"[review] Contact sheet: {run_dir/'video-review.jpg'}", flush=True)
         print("[review] Stopped after video. Check the result before running later stages.", flush=True)
         return run_dir
+    video_hash = file_hash(reference_video)
     settings = config.get("supervision", {})
     groups = settings.get("track_groups", {})
 
     def supervise(out):
-        frames, indices = sample_video(generated/"reference.mp4", out/"frames",
+        frames, indices = sample_video(reference_video, out/"frames",
             video_config.get("sample_frames", 25), renderer.size[::-1])
         print(f"[supervision] SAM2 masks | {len(frames)} frames", flush=True)
         masks = segment_frames(out/"frames", np.load(rendered/"mask.npy")>.5, settings)
@@ -184,75 +189,82 @@ def run(config, force_stage=None, from_stage=None, until_stage=None, *, debug_im
             depth_maps=depth_maps, indices=indices)
         return ["supervision.npz"]+[str(p.relative_to(out)) for p in sorted((out/"frames").glob("*.jpg"))]
     supervised = stage("supervision", settings,
-        {"video": file_hash(generated/"reference.mp4"), "mask": file_hash(rendered/"mask.npy"),
+        {"video": video_hash, "mask": file_hash(rendered/"mask.npy"),
          "alltracker_revision": repo_revision("third_party/alltracker"),
          "sam_revision": repo_revision("third_party/sam2"),
          "vggt_revision": repo_revision("third_party/vggt"),
-         **({"rig": file_hash(prepared/"rig.npz")} if groups else {})},
+         **({"rig": rig_hash} if groups else {})},
         supervise, ["models.py", "render.py"] + (["track_sampling.py"] if groups else []))
+    supervision_path = supervised/"supervision.npz"
     if debug_images:
         from .supervision_review import write_review
         review = run_dir/"supervision-review"
-        write_review(supervised/"supervision.npz", review, rig=raw, groups=groups)
+        write_review(supervision_path, review, rig=raw, groups=groups)
         print(f"[review] Supervision: {review}", flush=True)
     if until_stage == "supervision":
         return run_dir
-    target_raw = dict(np.load(supervised/"supervision.npz"))
+    supervision_hash = file_hash(supervision_path)
+    with np.load(supervision_path) as archive:
+        target_raw = {key: archive[key] for key in archive.files if key != "depth_maps"}
     target = {k: torch.as_tensor(v, device=device,
               dtype=torch.long if k in ("triangles", "indices") else torch.float32)
-              for k, v in target_raw.items() if k != "depth_maps"}
+              for k, v in target_raw.items()}
     from .joint_review import source_fps, write_joint_review
-    video_fps = source_fps(generated/"reference.mp4")
+    video_fps = source_fps(reference_video)
     indices = target_raw["indices"]
     target["frame_times"] = torch.as_tensor(indices/video_fps, device=device, dtype=torch.float32)
-    joint_dir = stage("joints", config.get("joints", {}),
-        {"rig": file_hash(prepared/"rig.npz"), "supervision": file_hash(supervised/"supervision.npz"),
+    joint_config = config.get("joints", {})
+    joint_dir = stage("joints", joint_config,
+        {"rig": rig_hash, "supervision": supervision_hash,
          "fps": video_fps, "camera": camera},
-        lambda out: fit_joints(rig, target, renderer, out, config.get("joints", {})),
+        lambda out: fit_joints(rig, target, renderer, out, joint_config),
         ["rig.py", "optimize.py", "losses.py", "render.py", "evaluate.py"])
-    joint = dict(np.load(joint_dir/"joint_trajectory.npz"))
+    joint_path = joint_dir/"joint_trajectory.npz"
+    joint = dict(np.load(joint_path))
     if until_stage == "joints":
         review_dir = run_dir/"joint-review"
         write_joint_review(review_dir, rig, joint["local"], renderer,
-                           generated/"reference.mp4", indices, video_fps)
+                           reference_video, indices, video_fps)
         shutil.copy2(joint_dir/"joint_diagnostics.json", review_dir/"joint_diagnostics.json")
         print(f"[review] Joint animation: {review_dir/'joint_0.mp4'}", flush=True)
         print("[review] Stopped after joints; no tetrahedralization or FEM was run.", flush=True)
         return run_dir
     from .physics import tetrahedralize, fit_material
-    tet_dir = stage("tetrahedralize", config.get("physics", {}),
-        {"rig": file_hash(prepared/"rig.npz")},
-        lambda out: tetrahedralize(raw, out, config.get("physics", {})), ["physics.py"])
+
+    joint_hash = file_hash(joint_path)
+    physics_settings = config.get("physics", {})
+    tet_dir = stage("tetrahedralize", physics_settings, {"rig": rig_hash},
+        lambda out: tetrahedralize(raw, out, physics_settings), ["physics.py"])
     dt = float(np.diff(indices).mean())/video_fps
     # Eq. 13 reuses the image-space objective and lambda weights from Eq. 4.
-    physics_config = {**config.get("physics", {}),
-                      "objective": config.get("joints", {}).get("objective", "paper"),
-                      "confidence_threshold": config.get("joints", {}).get("confidence_threshold", .1),
-                      "loss_weights": config.get("joints", {}).get("loss_weights", {})}
+    physics_config = {**physics_settings,
+                      "objective": joint_config.get("objective", "paper"),
+                      "confidence_threshold": joint_config.get("confidence_threshold", .1),
+                      "loss_weights": joint_config.get("loss_weights", {})}
     physics_dir = stage("physics", physics_config,
-        {"tet": file_hash(tet_dir/"tetrahedral.npz"), "joint": file_hash(joint_dir/"joint_trajectory.npz"),
-         "supervision": file_hash(supervised/"supervision.npz")},
+        {"tet": file_hash(tet_dir/"tetrahedral.npz"), "joint": joint_hash,
+         "supervision": supervision_hash},
         lambda out: fit_material(rig, dict(np.load(tet_dir/"tetrahedral.npz")),
             torch.tensor(joint["world"], device=device), target, renderer, out,
             physics_config, dt), ["physics.py", "fem.py", "optimize.py", "losses.py"])
     def export(out):
         write_joint_review(out, rig, joint["local"], renderer,
-                           generated/"reference.mp4", indices, video_fps)
-        physical = np.load(physics_dir/"physics_trajectory.npz")["vertices"]
+                           reference_video, indices, video_fps)
+        with np.load(physics_dir/"physics_trajectory.npz") as archive:
+            physical = torch.as_tensor(archive["vertices"], device=device)
         trajectories = {
             "initial": rig["vertices"][None].expand(len(joint["vertices"]), -1, -1),
             "joint": torch.tensor(joint["vertices"], device=device),
-            "physics": torch.tensor(physical, device=device)}
+            "physics": physical}
         report = {name: metrics(value, rig, target, renderer)
                   for name, value in trajectories.items()}
         save_json(out/"metrics.json", report)
-        previews(out, rig, None,
-                 torch.tensor(physical, device=device), renderer,
+        previews(out, rig, None, physical, renderer,
                  (target_raw["frames"]*255).astype(np.uint8), 1/dt)
         return ["joint.glb", "joint-review.json", "metrics.json"]+[p.name for p in out.glob("*.mp4")]
-    stage("export", {}, {"joint": file_hash(joint_dir/"joint_trajectory.npz"),
+    stage("export", {}, {"joint": joint_hash,
         "physics": file_hash(physics_dir/"physics_trajectory.npz"),
-        "video": file_hash(generated/"reference.mp4"), "fps": video_fps, "camera": camera,
-        "supervision": file_hash(supervised/"supervision.npz")}, export,
+        "video": video_hash, "fps": video_fps, "camera": camera,
+        "supervision": supervision_hash}, export,
         ["export.py", "evaluate.py", "render.py", "joint_review.py", "rig.py"])
     return run_dir
